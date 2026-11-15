@@ -4,8 +4,10 @@ A minimal, working proof of concept for a health app that must follow HIPAA and 
 a small API that registers users and checks their logins (passwords stored as Argon2id hashes in PostgreSQL),
 writes an audit trail to Azure Blob Storage, and ships through a pipeline with a security gate at every stage.
 
-> **POC rule:** never put real patient data (PHI) into this environment until the hardening backlog below is done
-> and your compliance owner has signed off.
+> **About this project:** a learning and portfolio project that shows how I'd build a secure delivery pipeline for
+> a regulated workload. It isn't a production service and isn't certified against HIPAA or SOC 2. Never put real
+> patient data (PHI) into it until the hardening backlog below is done and a compliance owner has signed off.
+> See [SECURITY.md](SECURITY.md) to report issues. Licensed under [MIT](LICENSE).
 
 ---
 
@@ -38,7 +40,7 @@ writes an audit trail to Azure Blob Storage, and ships through a pipeline with a
 **No secrets exist anywhere.** GitHub signs in to Azure with OIDC (short-lived tokens). The app reaches the
 database and storage with its managed identity. Database passwords and storage keys are switched off.
 
-## 2. Key decisions (and two corrections to the brief)
+## 2. Key decisions and design notes
 
 | Topic | Decision | Why |
 |---|---|---|
@@ -50,13 +52,13 @@ database and storage with its managed identity. Database passwords and storage k
 | Production identity | **Microsoft Entra External ID** | Best practice is to *not* store passwords yourself. It gives you MFA, password reset, breach detection and session tokens. The POC stores hashes so you can see the database working end to end. |
 | IaC | Terraform, state in Entra-only, versioned blob storage | Plan shows up on every PR; changes can be audited. |
 
-**Correction 1: user registrations don't go through CI/CD.** A new user signing up is *data*. It is written to
+**Design note 1: user registrations don't go through CI/CD.** A new user signing up is *data*. It is written to
 the database while the app runs, in milliseconds, and never touches the pipeline. CI/CD carries *changes to code
 and infrastructure*: a new feature, a schema change (for example, adding a column to `users`), a dependency
 bump, a firewall rule. Every one of those goes through PR → scans → plan → approval → deploy. What you *can*
 track is registrations: each one writes an audit record to Blob Storage and Log Analytics.
 
-**Correction 2: an Azure account alone doesn't make you "HIPAA compliant".** Microsoft's BAA is included
+**Design note 2: an Azure account alone doesn't make you "HIPAA compliant".** Microsoft's BAA is included
 automatically in its Product Terms for in-scope services (all the services used here are in scope). Compliance
 also needs your own policies, risk assessment, access reviews, training and incident response. This repo gives
 you the technical controls and the evidence trail.
