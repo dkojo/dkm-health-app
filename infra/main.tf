@@ -9,16 +9,13 @@ data "azurerm_container_registry" "acr" {
   resource_group_name = var.shared_resource_group
 }
 
-resource "random_string" "suffix" {
-  length  = 6
-  special = false
-  upper   = false
-}
-
 locals {
-  rg     = data.azurerm_resource_group.app.name
-  loc    = data.azurerm_resource_group.app.location
-  suffix = random_string.suffix.result
+  rg  = data.azurerm_resource_group.app.name
+  loc = data.azurerm_resource_group.app.location
+  # Deterministic suffix so every resource name is known at PLAN time. That lets reviewers and the
+  # Checkov plan gate verify names before apply (a random suffix is "known after apply").
+  # Same scheme as scripts/bootstrap-azure.sh (first 6 hex chars of sha256(subscription id)).
+  suffix = var.name_suffix != "" ? var.name_suffix : substr(sha256(data.azurerm_client_config.current.subscription_id), 0, 6)
 }
 
 # ---------- Identity: one managed identity, no secrets ----------

@@ -34,6 +34,16 @@ variable "deployment_profile" {
   }
 }
 
+variable "name_suffix" {
+  description = "Override for the globally-unique name suffix (default: derived from the subscription ID). Only needed if a name is taken, e.g. right after a destroy."
+  type        = string
+  default     = ""
+  validation {
+    condition     = can(regex("^[a-z0-9]{0,6}$", var.name_suffix))
+    error_message = "name_suffix must be up to 6 lowercase letters/digits (storage account names allow only [a-z0-9], max 24 chars)."
+  }
+}
+
 variable "tags" {
   type = map(string)
   default = {
