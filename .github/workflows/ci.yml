@@ -1,0 +1,108 @@
+# CI: runs on every pull request. Every job is a required check; nothing merges to main unless all pass.
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.21.2
+  TRIVY_IMAGE: aquasec/trivy:0.58.1
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # 1. SECRETS: block any committed credential (gitleaks over full history of the PR)
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: Gitleaks
+        run: docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" detect --source /repo --redact --verbose
+
+  # 2. BUILD + TEST + SAST + SCA for application code
+  code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: pip install -r requirements-dev.txt semgrep pip-audit
+      - name: Lint (ruff)
+        run: ruff check . && ruff format --check .
+      - name: Unit tests (pytest)
+        run: pytest -q
+      - name: SAST (Semgrep)
+        run: semgrep scan --config p/python --config p/owasp-top-ten --error --metrics off app/
+      - name: Dependency vulnerabilities (pip-audit)
+        run: pip-audit -r app/requirements.txt --strict
+
+  # 3. IaC: format, validate, misconfiguration scan
+  iac:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: infra } }
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.12.0 }
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false && terraform validate
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - name: IaC scan (Checkov)
+        run: pip install checkov && checkov -d . --config-file ../.checkov.yaml
+
+  # 4. CONTAINER: build image, fail on HIGH/CRITICAL vulnerabilities or misconfig
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - run: docker build -t dkm-health-app:${{ github.sha }} .
+      - name: Image scan (Trivy)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image \
+            --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --scanners vuln,secret,misconfig \
+            dkm-health-app:${{ github.sha }}
+      - name: Dockerfile scan (Trivy config)
+        run: |
+          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" config --exit-code 1 \
+            --severity HIGH,CRITICAL /src/Dockerfile
+
+  # 5. PLAN: show exactly what would change in Azure (read-only identity, no lock)
+  plan:
+    needs: [secrets-scan, code, iac, image]
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token for Azure login
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ vars.AZURE_CI_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    defaults: { run: { working-directory: infra } }
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.12.0, terraform_wrapper: false }
+      - run: terraform init -input=false -backend-config="storage_account_name=${{ vars.TFSTATE_ACCOUNT }}"
+      - name: Terraform plan
+        run: |
+          terraform plan -input=false -lock=false -no-color \
+            -var "acr_name=${{ vars.ACR_NAME }}" \
+            -var "image=${{ vars.ACR_NAME }}.azurecr.io/dkm-health-app:pr-${{ github.sha }}" \
+            | tee plan.txt
+          { echo '### Terraform plan'; echo '```'; tail -n 60 plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

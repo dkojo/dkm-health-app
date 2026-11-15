@@ -1,0 +1,253 @@
+data "azurerm_client_config" "current" {}
+
+data "azurerm_resource_group" "app" {
+  name = var.app_resource_group
+}
+
+data "azurerm_container_registry" "acr" {
+  name                = var.acr_name
+  resource_group_name = var.shared_resource_group
+}
+
+resource "random_string" "suffix" {
+  length  = 6
+  special = false
+  upper   = false
+}
+
+locals {
+  rg     = data.azurerm_resource_group.app.name
+  loc    = data.azurerm_resource_group.app.location
+  suffix = random_string.suffix.result
+}
+
+# ---------- Identity: one managed identity, no secrets ----------
+resource "azurerm_user_assigned_identity" "app" {
+  name                = "id-dkm-health-app"
+  resource_group_name = local.rg
+  location            = local.loc
+  tags                = var.tags
+}
+
+resource "azurerm_role_assignment" "acr_pull" {
+  scope                = data.azurerm_container_registry.acr.id
+  role_definition_name = "AcrPull"
+  principal_id         = azurerm_user_assigned_identity.app.principal_id
+}
+
+# ---------- Logging (SOC2 CC7 / HIPAA 164.312(b) audit controls) ----------
+resource "azurerm_log_analytics_workspace" "main" {
+  name                = "log-dkm-health-${local.suffix}"
+  resource_group_name = local.rg
+  location            = local.loc
+  sku                 = "PerGB2018"
+  retention_in_days   = 90
+  tags                = var.tags
+}
+
+# ---------- Blob storage (audit trail) ----------
+resource "azurerm_storage_account" "data" {
+  name                              = "stdkmhealth${local.suffix}"
+  resource_group_name               = local.rg
+  location                          = local.loc
+  account_tier                      = "Standard"
+  account_replication_type          = "GZRS" # geo + zone redundant
+  min_tls_version                   = "TLS1_2"
+  https_traffic_only_enabled        = true
+  shared_access_key_enabled         = false # Entra ID only: no account keys / SAS
+  allow_nested_items_to_be_public   = false
+  infrastructure_encryption_enabled = true
+  local_user_enabled                = false
+  tags                              = var.tags
+
+  blob_properties {
+    versioning_enabled = true
+    delete_retention_policy {
+      days = 30
+    }
+    container_delete_retention_policy {
+      days = 30
+    }
+  }
+}
+
+resource "azurerm_storage_container" "audit" {
+  name                  = "audit"
+  storage_account_id    = azurerm_storage_account.data.id
+  container_access_type = "private"
+}
+
+resource "azurerm_role_assignment" "app_blob" {
+  scope                = azurerm_storage_container.audit.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.app.principal_id
+}
+
+resource "azurerm_monitor_diagnostic_setting" "blob" {
+  name                       = "to-log-analytics"
+  target_resource_id         = "${azurerm_storage_account.data.id}/blobServices/default"
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+  enabled_log { category = "StorageRead" }
+  enabled_log { category = "StorageWrite" }
+  enabled_log { category = "StorageDelete" }
+}
+
+# ---------- PostgreSQL (user accounts) ----------
+resource "azurerm_postgresql_flexible_server" "db" {
+  name                          = "psql-dkm-health-${local.suffix}"
+  resource_group_name           = local.rg
+  location                      = local.loc
+  version                       = "16"
+  sku_name                      = "B_Standard_B1ms" # POC size; use GP_* + HA for prod
+  storage_mb                    = 32768
+  backup_retention_days         = 35
+  geo_redundant_backup_enabled  = true
+  public_network_access_enabled = true # POC only. See README "Hardening backlog".
+  tags                          = var.tags
+
+  authentication {
+    active_directory_auth_enabled = true
+    password_auth_enabled         = false # no database passwords exist at all
+    tenant_id                     = data.azurerm_client_config.current.tenant_id
+  }
+
+  lifecycle {
+    ignore_changes = [zone]
+  }
+}
+
+resource "azurerm_postgresql_flexible_server_database" "app" {
+  name      = "dkmhealth"
+  server_id = azurerm_postgresql_flexible_server.db.id
+  charset   = "UTF8"
+  collation = "en_US.utf8"
+}
+
+# POC: the app identity is the Entra admin so no manual SQL step is needed.
+# Hardening backlog: make a human admin group the Entra admin and grant the
+# app a least-privilege role instead.
+resource "azurerm_postgresql_flexible_server_active_directory_administrator" "app" {
+  server_name         = azurerm_postgresql_flexible_server.db.name
+  resource_group_name = local.rg
+  tenant_id           = data.azurerm_client_config.current.tenant_id
+  object_id           = azurerm_user_assigned_identity.app.principal_id
+  principal_name      = azurerm_user_assigned_identity.app.name
+  principal_type      = "ServicePrincipal"
+}
+
+resource "azurerm_postgresql_flexible_server_firewall_rule" "azure" {
+  name             = "allow-azure-services"
+  server_id        = azurerm_postgresql_flexible_server.db.id
+  start_ip_address = "0.0.0.0"
+  end_ip_address   = "0.0.0.0"
+}
+
+resource "azurerm_postgresql_flexible_server_configuration" "log_connections" {
+  name      = "log_connections"
+  server_id = azurerm_postgresql_flexible_server.db.id
+  value     = "on"
+}
+
+resource "azurerm_postgresql_flexible_server_configuration" "log_disconnections" {
+  name      = "log_disconnections"
+  server_id = azurerm_postgresql_flexible_server.db.id
+  value     = "on"
+}
+
+resource "azurerm_monitor_diagnostic_setting" "db" {
+  name                       = "to-log-analytics"
+  target_resource_id         = azurerm_postgresql_flexible_server.db.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+  enabled_log { category = "PostgreSQLLogs" }
+}
+
+# ---------- Compute: Azure Container Apps ----------
+resource "azurerm_container_app_environment" "main" {
+  name                       = "cae-dkm-health"
+  resource_group_name        = local.rg
+  location                   = local.loc
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+  tags                       = var.tags
+}
+
+resource "azurerm_container_app" "api" {
+  name                         = "ca-dkm-health-app"
+  resource_group_name          = local.rg
+  container_app_environment_id = azurerm_container_app_environment.main.id
+  revision_mode                = "Single"
+  tags                         = var.tags
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.app.id]
+  }
+
+  registry {
+    server   = data.azurerm_container_registry.acr.login_server
+    identity = azurerm_user_assigned_identity.app.id
+  }
+
+  ingress {
+    external_enabled           = true
+    target_port                = 8000
+    allow_insecure_connections = false
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
+
+  template {
+    min_replicas = 1
+    max_replicas = 3
+
+    container {
+      name   = "api"
+      image  = var.image
+      cpu    = 0.5
+      memory = "1Gi"
+
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = azurerm_user_assigned_identity.app.client_id
+      }
+      env {
+        name  = "PGHOST"
+        value = azurerm_postgresql_flexible_server.db.fqdn
+      }
+      env {
+        name  = "PGDATABASE"
+        value = azurerm_postgresql_flexible_server_database.app.name
+      }
+      env {
+        name  = "PGUSER"
+        value = azurerm_user_assigned_identity.app.name
+      }
+      env {
+        name  = "STORAGE_ACCOUNT_URL"
+        value = azurerm_storage_account.data.primary_blob_endpoint
+      }
+      env {
+        name  = "AUDIT_CONTAINER"
+        value = azurerm_storage_container.audit.name
+      }
+
+      liveness_probe {
+        transport = "HTTP"
+        port      = 8000
+        path      = "/health"
+      }
+      readiness_probe {
+        transport = "HTTP"
+        port      = 8000
+        path      = "/ready"
+      }
+    }
+  }
+
+  depends_on = [
+    azurerm_role_assignment.acr_pull,
+    azurerm_role_assignment.app_blob,
+    azurerm_postgresql_flexible_server_active_directory_administrator.app,
+  ]
+}
