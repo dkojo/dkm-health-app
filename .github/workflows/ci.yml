@@ -23,7 +23,7 @@ jobs:
   secrets-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
       - name: Gitleaks
         run: docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" detect --source /repo --redact --verbose
@@ -32,7 +32,7 @@ jobs:
   code:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
       - uses: actions/setup-python@v7
         with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: infra } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
       - uses: hashicorp/setup-terraform@v4
         with: { terraform_version: 1.12.0 }
@@ -66,7 +66,7 @@ jobs:
   image:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
       - run: docker build -t dkm-health-app:${{ github.sha }} .
       - name: Image scan (Trivy)
@@ -97,7 +97,7 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
     defaults: { run: { working-directory: infra } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
       - uses: hashicorp/setup-terraform@v4
         with: { terraform_version: 1.12.0, terraform_wrapper: false }
