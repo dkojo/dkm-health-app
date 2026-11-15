@@ -25,7 +25,7 @@ jobs:
   secrets-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
       - name: Gitleaks
         run: docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" detect --source /repo --redact --verbose
@@ -34,9 +34,9 @@ jobs:
   code:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
       - run: pip install -r requirements-dev.txt semgrep pip-audit
       - name: Lint (ruff)
@@ -53,13 +53,13 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: infra } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with: { terraform_version: 1.12.0 }
       - run: terraform fmt -check -recursive
       - run: terraform init -backend=false && terraform validate
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: "${{ env.PYTHON_VERSION }}" }
       # Static scan of source. It can't resolve values behind the profile map, so the two
       # resilience checks that depend on the profile are enforced by the plan gate (job 5 / CD),
@@ -71,7 +71,7 @@ jobs:
   image:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
       - run: docker build -t "dkm-health-app:$GITHUB_SHA" .
       - name: Image scan (Trivy)
@@ -105,9 +105,9 @@ jobs:
       TFSTATE_ACCOUNT: ${{ vars.TFSTATE_ACCOUNT }}
     defaults: { run: { working-directory: infra } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with: { terraform_version: 1.12.0, terraform_wrapper: false }
       - run: terraform init -input=false -backend-config="storage_account_name=$TFSTATE_ACCOUNT"
       - name: Terraform plan
