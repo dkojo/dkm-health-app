@@ -3,5 +3,5 @@ uvicorn[standard]>=0.54.0
 pydantic[email]>=2.10
 argon2-cffi>=23.1
 psycopg[binary]>=3.3.9
-azure-identity>=1.19
+azure-identity>=1.27.0
 azure-storage-blob>=12.24
