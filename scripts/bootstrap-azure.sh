@@ -2,7 +2,8 @@
 # One-time Azure foundation for dkm-health-app. Run from the repo root in Git Bash (Windows),
 # any Linux/macOS shell, or Azure Cloud Shell (Bash), after `az login`:
 #   GITHUB_REPO=<owner>/<repo> bash scripts/bootstrap-azure.sh
-# Optional: LOCATION=<azure-region> (default eastus2), YES=1 to skip the confirmation prompt.
+# Optional: LOCATION=<azure-region> (default eastus2), YES=1 to skip the confirmation prompt,
+#           OIDC_PREFIX=<sub_claim_prefix> to override the GitHub OIDC subject prefix.
 #
 # Creates:
 #   rg-dkm-health-shared : Terraform state storage + Azure Container Registry (artifact repository)
@@ -25,6 +26,19 @@ CLEANUP=()
 trap 'rm -f "${CLEANUP[@]}"' EXIT
 
 : "${GITHUB_REPO:?set GITHUB_REPO=<owner>/<repo>}"
+
+# OIDC subject prefix that Azure must trust. GitHub can issue tokens whose subject embeds the
+# immutable owner/repo IDs (repo:owner@123/name@456:...), so a deleted-and-recreated or
+# squatted repo of the same name can't inherit access. Ask GitHub for the exact prefix.
+if [ -z "${OIDC_PREFIX:-}" ] && command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
+  OIDC_PREFIX=$(gh api "repos/$GITHUB_REPO/actions/oidc/customization/sub" --jq '.sub_claim_prefix // empty' 2>/dev/null | tr -d '\r') || true
+fi
+if [ -z "${OIDC_PREFIX:-}" ]; then
+  echo "WARNING: couldn't read the OIDC subject prefix from GitHub (gh not logged in?). Falling back to" >&2
+  echo "         repo:$GITHUB_REPO. If Azure login later fails with AADSTS700213, re-run with" >&2
+  echo "         OIDC_PREFIX set to the 'sub_claim_prefix' of: gh api repos/$GITHUB_REPO/actions/oidc/customization/sub" >&2
+  OIDC_PREFIX="repo:$GITHUB_REPO"
+fi
 LOCATION="${LOCATION:-eastus2}"
 SHARED_RG=rg-dkm-health-shared
 APP_RG=rg-dkm-health-prod
@@ -42,7 +56,7 @@ cat <<EOF
 ==> About to create the dkm-health-app foundation:
     Subscription : $SUB_NAME ($SUB_ID)
     Region       : $LOCATION
-    GitHub repo  : $GITHUB_REPO
+    GitHub repo  : $GITHUB_REPO (OIDC subject prefix: $OIDC_PREFIX)
     Creates      : $SHARED_RG, $APP_RG, storage $TFSTATE_SA, registry $ACR_NAME,
                    Entra apps dkm-health-github-ci / dkm-health-github-cd (+ role assignments)
 EOF
@@ -88,8 +102,13 @@ ensure_sp() {
   echo "$app_id $sp_oid"
 }
 
-federate() { # app_id cred_name subject
-  az ad app federated-credential list --id "$1" --query "[?name=='$2']" -o tsv | grep -q . && return
+federate() { # app_id cred_name subject  (creates, or replaces if the subject changed)
+  local existing; existing=$(az ad app federated-credential list --id "$1" --query "[?name=='$2'].[id,subject]" -o tsv)
+  if [ -n "$existing" ]; then
+    [ "${existing#*$'\t'}" = "$3" ] && return
+    echo "    replacing $2 (subject changed)"
+    az ad app federated-credential delete --id "$1" --federated-credential-id "${existing%%$'\t'*}" -o none
+  fi
   # JSON goes via a file (relative path) so Windows argument quoting can't mangle it.
   local f; f=$(mktemp fedcred.XXXXXX)
   CLEANUP+=("$f")
@@ -109,15 +128,15 @@ grant() { # sp_object_id role scope
 
 echo "==> CI identity (read-only, pull requests)"
 read -r CI_APP CI_SP <<<"$(ensure_sp dkm-health-github-ci)"
-federate "$CI_APP" github-pr "repo:${GITHUB_REPO}:pull_request"
+federate "$CI_APP" github-pr "${OIDC_PREFIX}:pull_request"
 grant "$CI_SP" Reader "$APP_RG_ID"
 grant "$CI_SP" Reader "$SHARED_RG_ID"
 grant "$CI_SP" "Storage Blob Data Reader" "$TFSTATE_SCOPE"
 
 echo "==> CD identity (main branch + production environment only)"
 read -r CD_APP CD_SP <<<"$(ensure_sp dkm-health-github-cd)"
-federate "$CD_APP" github-main "repo:${GITHUB_REPO}:ref:refs/heads/main"
-federate "$CD_APP" github-production "repo:${GITHUB_REPO}:environment:production"
+federate "$CD_APP" github-main "${OIDC_PREFIX}:ref:refs/heads/main"
+federate "$CD_APP" github-production "${OIDC_PREFIX}:environment:production"
 grant "$CD_SP" Contributor "$APP_RG_ID"
 grant "$CD_SP" "Role Based Access Control Administrator" "$APP_RG_ID"
 grant "$CD_SP" Reader "$SHARED_RG_ID"
