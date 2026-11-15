@@ -26,6 +26,9 @@ env:
 jobs:
   # 6. RELEASE ARTIFACT: build once, scan, push to ACR, sign + attach SBOM
   release:
+    # Skip (not fail) until Azure is bootstrapped and the repo variables are set (README Steps 2-3).
+    # deploy and dast depend on this job, so they skip too.
+    if: vars.AZURE_CD_CLIENT_ID != '' && vars.ACR_NAME != '' && vars.TFSTATE_ACCOUNT != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
