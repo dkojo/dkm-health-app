@@ -1,0 +1,16 @@
+# Checkov config = the IaC risk register. Every skip is a documented, time-boxed risk acceptance
+# (SOC2 CC3.2 / CC9.1). Remove the line when the backlog item ships; the pipeline then enforces it.
+compact: true
+quiet: true
+framework: [terraform]
+skip-check:
+  # --- Accepted for POC; closed by Sprint 3 "private networking" (VNet + private endpoints) ---
+  - CKV_AZURE_59   # storage public network access (Entra-only auth, no keys/SAS, TLS1.2)
+  - CKV2_AZURE_33  # storage private endpoint
+  - CKV2_AZURE_57  # postgres private endpoint
+  - CKV2_AZURE_26  # postgres "allow Azure services" firewall rule (Entra-only auth, TLS required)
+  # --- Accepted by design ---
+  - CKV2_AZURE_1   # CMK: platform-managed keys + infrastructure (double) encryption; revisit if a customer contract requires CMK
+  - CKV_AZURE_33   # queue service logging: no queues are used
+  # --- False positive ---
+  - CKV2_AZURE_21  # blob read logging IS enabled via azurerm_monitor_diagnostic_setting.blob (Checkov looks for classic logging)
