@@ -17,13 +17,15 @@ env:
   GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.21.2
   TRIVY_IMAGE: aquasec/trivy:0.58.1
   PYTHON_VERSION: "3.12"
+  # sandbox | production (see infra/profiles.tf). Unset => production, the safe default.
+  TF_VAR_deployment_profile: ${{ vars.DEPLOYMENT_PROFILE || 'production' }}
 
 jobs:
   # 1. SECRETS: block any committed credential (gitleaks over full history of the PR)
   secrets-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0, persist-credentials: false }
       - name: Gitleaks
         run: docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" detect --source /repo --redact --verbose
@@ -32,54 +34,65 @@ jobs:
   code:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
-      - run: pip install -r requirements-dev.txt semgrep pip-audit
+      - name: Install dependencies (hash-locked, wheels only)
+        run: |
+          pip install -q --require-hashes --only-binary :all: -r requirements-dev.txt
+          python -m venv "$RUNNER_TEMP/sast" # tools isolated from app deps
+          "$RUNNER_TEMP/sast/bin/pip" install -q --require-hashes --only-binary :all: -r .github/tools/sast.txt
       - name: Lint (ruff)
         run: ruff check . && ruff format --check .
       - name: Unit tests (pytest)
         run: pytest -q
       - name: SAST (Semgrep)
-        run: semgrep scan --config p/python --config p/owasp-top-ten --error --metrics off app/
+        run: '"$RUNNER_TEMP/sast/bin/semgrep" scan --config p/python --config p/owasp-top-ten --error --metrics off app/'
       - name: Dependency vulnerabilities (pip-audit)
-        run: pip-audit -r app/requirements.txt --strict
+        run: '"$RUNNER_TEMP/sast/bin/pip-audit" -r app/requirements.txt --require-hashes --disable-pip --strict'
 
   # 3. IaC: format, validate, misconfiguration scan
   iac:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: infra } }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with: { terraform_version: 1.12.0 }
       - run: terraform fmt -check -recursive
       - run: terraform init -backend=false && terraform validate
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      # Static scan of source. It can't resolve values behind the profile map, so the two
+      # resilience checks that depend on the profile are enforced by the plan gate (job 5 / CD),
+      # which uses the strict register for the active profile. Hence the sandbox register here.
       - name: IaC scan (Checkov)
-        run: pip install checkov && checkov -d . --config-file ../.checkov.yaml
+        run: |
+          python -m venv "$RUNNER_TEMP/ck"
+          "$RUNNER_TEMP/ck/bin/pip" install -q --require-hashes --only-binary :all: -r ../.github/tools/checkov.txt
+          "$RUNNER_TEMP/ck/bin/checkov" -d . --framework terraform --config-file ../.checkov.sandbox.yaml
 
   # 4. CONTAINER: build image, fail on HIGH/CRITICAL vulnerabilities or misconfig
   image:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - run: docker build -t dkm-health-app:${{ github.sha }} .
+      - run: docker build -t "dkm-health-app:$GITHUB_SHA" .
       - name: Image scan (Trivy)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image \
             --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --scanners vuln,secret,misconfig \
-            dkm-health-app:${{ github.sha }}
+            "dkm-health-app:$GITHUB_SHA"
       - name: Dockerfile scan (Trivy config)
         run: |
           docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" config --exit-code 1 \
             --severity HIGH,CRITICAL /src/Dockerfile
 
-  # 5. PLAN: show exactly what would change in Azure (read-only identity, no lock)
+  # 5. PLAN: show exactly what would change in Azure (read-only identity, no lock), then
+  #    policy-check the fully resolved plan against the active profile's risk register.
   plan:
     needs: [secrets-scan, code, iac, image]
     # Same-repo PRs only (forks get no Azure token), and only once Azure variables are set.
@@ -95,17 +108,29 @@ jobs:
       ARM_CLIENT_ID: ${{ vars.AZURE_CI_CLIENT_ID }}
       ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      TFSTATE_ACCOUNT: ${{ vars.TFSTATE_ACCOUNT }}
     defaults: { run: { working-directory: infra } }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: hashicorp/setup-terraform@v4
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with: { python-version: "3.12" }
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with: { terraform_version: 1.12.0, terraform_wrapper: false }
-      - run: terraform init -input=false -backend-config="storage_account_name=${{ vars.TFSTATE_ACCOUNT }}"
+      - run: terraform init -input=false -backend-config="storage_account_name=$TFSTATE_ACCOUNT"
       - name: Terraform plan
         run: |
-          terraform plan -input=false -lock=false -no-color \
-            -var "acr_name=${{ vars.ACR_NAME }}" \
-            -var "image=${{ vars.ACR_NAME }}.azurecr.io/dkm-health-app:pr-${{ github.sha }}" \
+          set -o pipefail # don't let `| tee` hide a failed plan
+          terraform plan -input=false -lock=false -no-color -out=tfplan \
+            -var "acr_name=$ACR_NAME" \
+            -var "image=$ACR_NAME.azurecr.io/dkm-health-app:pr-$GITHUB_SHA" \
             | tee plan.txt
-          { echo '### Terraform plan'; echo '```'; tail -n 60 plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Terraform plan (profile: $TF_VAR_deployment_profile)"; echo '```'; tail -n 60 plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Policy gate on resolved plan (Checkov)
+        run: |
+          terraform show -json tfplan > tfplan.json
+          cfg=../.checkov.yaml; [ "$TF_VAR_deployment_profile" = sandbox ] && cfg=../.checkov.sandbox.yaml
+          python -m venv "$RUNNER_TEMP/ck"
+          "$RUNNER_TEMP/ck/bin/pip" install -q --require-hashes --only-binary :all: -r ../.github/tools/checkov.txt
+          "$RUNNER_TEMP/ck/bin/checkov" -f tfplan.json --framework terraform_plan --config-file "$cfg"

@@ -16,12 +16,16 @@ concurrency:
 
 env:
   IMAGE_NAME: dkm-health-app
+  ACR_NAME: ${{ vars.ACR_NAME }}
   REGISTRY: ${{ vars.ACR_NAME }}.azurecr.io
+  TFSTATE_ACCOUNT: ${{ vars.TFSTATE_ACCOUNT }}
   TRIVY_IMAGE: aquasec/trivy:0.58.1
   ARM_USE_OIDC: "true"
   ARM_CLIENT_ID: ${{ vars.AZURE_CD_CLIENT_ID }}
   ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
   ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  # sandbox | production (see infra/profiles.tf). Unset => production, the safe default.
+  TF_VAR_deployment_profile: ${{ vars.DEPLOYMENT_PROFILE || 'production' }}
 
 jobs:
   # 6. RELEASE ARTIFACT: build once, scan, push to ACR, sign + attach SBOM
@@ -36,35 +40,37 @@ jobs:
     outputs:
       image: ${{ steps.push.outputs.image }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: azure/login@v3
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ vars.AZURE_CD_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - run: az acr login --name "${{ vars.ACR_NAME }}"
+      - run: az acr login --name "$ACR_NAME"
       - name: Build
-        run: docker build -t "$REGISTRY/$IMAGE_NAME:${{ github.sha }}" .
+        run: docker build -t "$REGISTRY/$IMAGE_NAME:$GITHUB_SHA" .
       - name: Image scan gate (Trivy)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image \
-            --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$REGISTRY/$IMAGE_NAME:${{ github.sha }}"
+            --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$REGISTRY/$IMAGE_NAME:$GITHUB_SHA"
       - name: SBOM (CycloneDX)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/out" "$TRIVY_IMAGE" image \
-            --format cyclonedx --output /out/sbom.cdx.json "$REGISTRY/$IMAGE_NAME:${{ github.sha }}"
+            --format cyclonedx --output /out/sbom.cdx.json "$REGISTRY/$IMAGE_NAME:$GITHUB_SHA"
       - name: Push
         id: push
         run: |
-          docker push "$REGISTRY/$IMAGE_NAME:${{ github.sha }}"
-          echo "image=$(docker inspect --format='{{index .RepoDigests 0}}' "$REGISTRY/$IMAGE_NAME:${{ github.sha }}")" >> "$GITHUB_OUTPUT"
-      - uses: sigstore/cosign-installer@v3
+          docker push "$REGISTRY/$IMAGE_NAME:$GITHUB_SHA"
+          echo "image=$(docker inspect --format='{{index .RepoDigests 0}}' "$REGISTRY/$IMAGE_NAME:$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Sign image and attach SBOM attestation (keyless, GitHub OIDC)
+        env:
+          IMAGE: ${{ steps.push.outputs.image }}
         run: |
-          cosign sign --yes "${{ steps.push.outputs.image }}"
-          cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "${{ steps.push.outputs.image }}"
-      - uses: actions/upload-artifact@v7
+          cosign sign --yes "$IMAGE"
+          cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$IMAGE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: sbom, path: sbom.cdx.json, retention-days: 90 }
 
   # 7. DEPLOY to production: waits for a required reviewer on the "production" environment
@@ -79,38 +85,55 @@ jobs:
       id-token: write
     outputs:
       url: ${{ steps.tf.outputs.url }}
+    env:
+      IMAGE: ${{ needs.release.outputs.image }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: azure/login@v3
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ vars.AZURE_CD_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - run: az acr login --name "${{ vars.ACR_NAME }}"
-      - uses: sigstore/cosign-installer@v3
+      - run: az acr login --name "$ACR_NAME"
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Verify signature (only images signed by this repo's CD workflow on main may deploy)
         run: |
-          cosign verify "${{ needs.release.outputs.image }}" \
+          cosign verify "$IMAGE" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/cd.yml@refs/heads/main" \
+            --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/cd.yml@refs/heads/main" \
             > /dev/null
-      - uses: hashicorp/setup-terraform@v4
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with: { python-version: "3.12" }
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with: { terraform_version: 1.12.0, terraform_wrapper: false }
-      - name: Terraform plan + apply
+      - name: Terraform plan
+        working-directory: infra
+        run: |
+          terraform init -input=false -backend-config="storage_account_name=$TFSTATE_ACCOUNT"
+          terraform plan -input=false -out=tfplan \
+            -var "acr_name=$ACR_NAME" -var "image=$IMAGE"
+      - name: Policy gate on resolved plan (Checkov)
+        working-directory: infra
+        run: |
+          terraform show -json tfplan > tfplan.json
+          cfg=../.checkov.yaml; [ "$TF_VAR_deployment_profile" = sandbox ] && cfg=../.checkov.sandbox.yaml
+          python -m venv "$RUNNER_TEMP/ck"
+          "$RUNNER_TEMP/ck/bin/pip" install -q --require-hashes --only-binary :all: -r ../.github/tools/checkov.txt
+          "$RUNNER_TEMP/ck/bin/checkov" -f tfplan.json --framework terraform_plan --config-file "$cfg"
+      - name: Terraform apply
         id: tf
         working-directory: infra
         run: |
-          terraform init -input=false -backend-config="storage_account_name=${{ vars.TFSTATE_ACCOUNT }}"
-          terraform plan -input=false -out=tfplan \
-            -var "acr_name=${{ vars.ACR_NAME }}" -var "image=${{ needs.release.outputs.image }}"
           terraform apply -input=false tfplan
           echo "url=$(terraform output -raw app_url)" >> "$GITHUB_OUTPUT"
       - name: Smoke test
+        env:
+          APP_URL: ${{ steps.tf.outputs.url }}
         run: |
           for path in /health /ready; do
             curl --fail --silent --show-error --retry 10 --retry-delay 15 --retry-all-errors \
-              "${{ steps.tf.outputs.url }}$path"; echo
+              "$APP_URL$path"; echo
           done
 
   # 8. DAST: OWASP ZAP baseline against the live app (report only; triage findings into the backlog)
@@ -119,10 +142,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: ZAP baseline scan
+        env:
+          APP_URL: ${{ needs.deploy.outputs.url }}
         run: |
           mkdir -p zap && chmod 777 zap
           docker run --rm -v "$PWD/zap:/zap/wrk" ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py -t "${{ needs.deploy.outputs.url }}" -r zap-report.html -I
-      - uses: actions/upload-artifact@v7
+            zap-baseline.py -t "$APP_URL" -r zap-report.html -I
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with: { name: zap-report, path: zap/zap-report.html, retention-days: 90 }

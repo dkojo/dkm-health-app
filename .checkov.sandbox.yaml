@@ -1,0 +1,19 @@
+# Checkov risk register for the SANDBOX profile = everything in .checkov.yaml PLUS the
+# resilience reductions sandbox makes on purpose. Security checks are never relaxed here.
+# Keep the first block identical to .checkov.yaml.
+# Used by: the plan policy gate when profile=sandbox, and the static source scan (CI iac job),
+# which can't resolve profile values (the plan gate enforces those checks per profile).
+compact: true
+quiet: true
+skip-check:
+  # --- Same as .checkov.yaml (production) ---
+  - CKV_AZURE_59
+  - CKV2_AZURE_33
+  - CKV2_AZURE_57
+  - CKV2_AZURE_26
+  - CKV2_AZURE_1
+  - CKV_AZURE_33
+  - CKV2_AZURE_21
+  # --- Sandbox-only: cost over resilience, no real data, environment is disposable ---
+  - CKV_AZURE_206  # storage uses LRS (single region), not GZRS
+  - CKV_AZURE_136  # postgres geo-redundant backups disabled

@@ -3,7 +3,7 @@ FROM python:3.12-slim AS build
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /build
 COPY app/requirements.txt .
-RUN pip install --prefix=/install -r requirements.txt
+RUN pip install --prefix=/install --require-hashes --only-binary :all: -r requirements.txt
 
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
