@@ -42,7 +42,7 @@ jobs:
         run: |
           pip install -q --require-hashes --only-binary :all: -r requirements-dev.txt
           python -m venv "$RUNNER_TEMP/sast" # tools isolated from app deps
-          "$RUNNER_TEMP/sast/bin/pip install -q --require-hashes --only-binary :all:" -r .github/tools/sast.txt
+          "$RUNNER_TEMP/sast/bin/pip" install -q --require-hashes --only-binary :all: -r .github/tools/sast.txt
       - name: Lint (ruff)
         run: ruff check . && ruff format --check .
       - name: Unit tests (pytest)
@@ -71,7 +71,7 @@ jobs:
       - name: IaC scan (Checkov)
         run: |
           python -m venv "$RUNNER_TEMP/ck"
-          "$RUNNER_TEMP/ck/bin/pip install -q --require-hashes --only-binary :all:" -r ../.github/tools/checkov.txt
+          "$RUNNER_TEMP/ck/bin/pip" install -q --require-hashes --only-binary :all: -r ../.github/tools/checkov.txt
           "$RUNNER_TEMP/ck/bin/checkov" -d . --framework terraform --config-file ../.checkov.sandbox.yaml
 
   # 4. CONTAINER: build image, fail on HIGH/CRITICAL vulnerabilities or misconfig
@@ -132,5 +132,5 @@ jobs:
           terraform show -json tfplan > tfplan.json
           cfg=../.checkov.yaml; [ "$TF_VAR_deployment_profile" = sandbox ] && cfg=../.checkov.sandbox.yaml
           python -m venv "$RUNNER_TEMP/ck"
-          "$RUNNER_TEMP/ck/bin/pip install -q --require-hashes --only-binary :all:" -r ../.github/tools/checkov.txt
+          "$RUNNER_TEMP/ck/bin/pip" install -q --require-hashes --only-binary :all: -r ../.github/tools/checkov.txt
           "$RUNNER_TEMP/ck/bin/checkov" -f tfplan.json --framework terraform_plan --config-file "$cfg"

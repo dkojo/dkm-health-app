@@ -119,7 +119,7 @@ jobs:
           terraform show -json tfplan > tfplan.json
           cfg=../.checkov.yaml; [ "$TF_VAR_deployment_profile" = sandbox ] && cfg=../.checkov.sandbox.yaml
           python -m venv "$RUNNER_TEMP/ck"
-          "$RUNNER_TEMP/ck/bin/pip install -q --require-hashes --only-binary :all:" -r ../.github/tools/checkov.txt
+          "$RUNNER_TEMP/ck/bin/pip" install -q --require-hashes --only-binary :all: -r ../.github/tools/checkov.txt
           "$RUNNER_TEMP/ck/bin/checkov" -f tfplan.json --framework terraform_plan --config-file "$cfg"
       - name: Terraform apply
         id: tf
