@@ -21,12 +21,12 @@ writes an audit trail to Azure Blob Storage, and ships through a pipeline with a
          │ 2 code          ruff (+Bandit rules) · pytest · Semgrep (SAST) · pip-audit (SCA) │
          │ 3 iac           terraform fmt/validate · Checkov                                 │
          │ 4 image         docker build · Trivy (vulns, secrets, misconfig)                 │
-         │ 5 plan          terraform plan  (read-only Azure identity via OIDC)              │
+         │ 5 plan          terraform plan (read-only OIDC identity) · Checkov on the plan   │
          └──────────────────────────────────────────────────────────────────────────────────┘
                                   │  review + all checks green → merge to main
          ┌──────────────────────── CD  (.github/workflows/cd.yml) ─────────────────────────┐
          │ 6 release   build · Trivy gate · SBOM · push to ACR · Cosign sign + attest       │
-         │ 7 deploy    ⏸ human approval · Cosign verify · terraform apply · smoke test      │
+         │ 7 deploy    ⏸ approval · Cosign verify · plan · Checkov · apply · smoke test     │
          │ 8 dast      OWASP ZAP baseline against the live URL                              │
          └──────────────────────────────────────────────────────────────────────────────────┘
                                   │
@@ -93,12 +93,14 @@ Open **Azure Cloud Shell** (the `>_` icon in the portal, then choose Bash), uplo
 GITHUB_REPO=<your-github-user>/dkm-health-app bash bootstrap-azure.sh
 ```
 It creates two resource groups, the Terraform state storage, ACR, and two least-privilege identities for
-GitHub (CI is read-only; CD can deploy only from `main`/`production`). It finishes by printing six
+GitHub (CI is read-only; CD can deploy only from `main`/`production`). It finishes by printing seven
 `gh variable set ...` commands.
 
 ### Step 3: Connect GitHub to Azure
-Run the six printed `gh variable set` commands in your repo folder. They are **variables, not secrets**:
-client IDs aren't sensitive, because OIDC trust is tied to your repo and branch.
+Run the seven printed `gh variable set` commands in your repo folder. They are **variables, not secrets**:
+client IDs aren't sensitive, because OIDC trust is tied to your repo and branch. The last one,
+`DEPLOYMENT_PROFILE=sandbox`, picks the cost-optimised profile (see section 7). Decide on the profile
+**before** the first deploy.
 
 ### Step 4: First run
 ```bash
@@ -135,9 +137,9 @@ docker build -t dkm-health-app . && docker run -p 8000:8000 dkm-health-app   # G
 | 2 | Code | ruff + Bandit rules, pytest, Semgrep, pip-audit | lint/test fail, SAST finding, known-vulnerable dependency | CC7.1, CC8.1 |
 | 3 | IaC | terraform validate, Checkov | misconfig not in `.checkov.yaml` risk register | CC7.1 |
 | 4 | Image | Trivy image + config | HIGH/CRITICAL fixable CVE | CC7.1 |
-| 5 | Plan | terraform plan (read-only identity) | plan error | CC8.1 (change visible before approval) |
+| 5 | Plan | terraform plan (read-only identity), Checkov on the resolved plan | plan error, policy violation for the active profile | CC8.1 (change visible before approval), CC7.1 |
 | 6 | Release | Trivy, CycloneDX SBOM, ACR, Cosign | CVE or signing failure | CC8.1, supply-chain integrity |
-| 7 | Deploy | required reviewer, Cosign verify, terraform apply, smoke test | unsigned image, failed health check | CC8.1 approval, 164.312(c) integrity |
+| 7 | Deploy | required reviewer, Cosign verify, Checkov plan gate, terraform apply, smoke test | unsigned image, policy violation, failed health check | CC8.1 approval, 164.312(c) integrity |
 | 8 | DAST | OWASP ZAP baseline | report only (triage into backlog) | CC7.1 |
 
 Running across all stages: Dependabot (weekly), GitHub secret scanning with push protection, and audit logs in Log Analytics.
@@ -163,9 +165,40 @@ Running across all stages: Dependabot (weekly), GitHub secret scanning with push
   (no code or data). Use a Key Vault key instead if that isn't acceptable.
 - Tool versions in workflows (Trivy, Gitleaks) are pinned by hand. Review them monthly, and pin actions to SHAs in Sprint 5.
 
-## 7. Rough cost (POC, idle)
-About **$50–80/month**: Container App with 1 always-on replica, Postgres B1ms, GZRS storage, ACR Basic, Log Analytics.
-To save money between demos, run `az containerapp update -n ca-dkm-health-app -g rg-dkm-health-prod --min-replicas 0` and stop the Postgres server.
+## 7. Deployment profiles and cost (FinOps)
+
+One setting, `DEPLOYMENT_PROFILE` (a GitHub repo variable), picks between two sizing profiles defined in
+[`infra/profiles.tf`](infra/profiles.tf). **Only resilience and cost change. Security controls are identical
+in both profiles and can't be configured there.** If the variable isn't set, the code uses `production`,
+so it's safe by default.
+
+| Setting | `sandbox` (learning, demos) | `production` (real workloads) |
+|---|---|---|
+| App replicas | 0–2 (**scales to zero** when idle; a few seconds' cold start) | 1–5 (always on) |
+| PostgreSQL | Burstable B1ms (Azure free tier, 12 months) | General Purpose D2ds_v5 + **zone-redundant HA** |
+| DB backups | 7 days, local | 35 days, **geo-redundant** |
+| Blob storage | LRS, 7-day soft delete | **GZRS**, 30-day soft delete |
+| Log retention | 30 days | 90 days hot (+ archive for HIPAA's 6 years) |
+| Encryption, Entra-only auth, no keys/passwords, TLS, audit logs, signed images | ✅ | ✅ |
+| Checkov risk register | [`.checkov.sandbox.yaml`](.checkov.sandbox.yaml) (+2 documented resilience exceptions) | [`.checkov.yaml`](.checkov.yaml) |
+| Approx. monthly cost* | **~$5–15 idle** (~$5 when destroyed: ACR only) | **~$300+** |
+
+\*Rough estimates. Check the [Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/) for your region.
+
+**Policy is checked against the real plan, not just source.** The static Checkov scan can't see values
+behind the profile map. So CI (on every PR) and CD (just before apply) also run Checkov on the fully
+resolved `terraform plan` JSON, using the risk register for the active profile. A sandbox exception can't
+leak into production unnoticed.
+
+> ⚠️ **Treat a profile change as a migration, not a toggle.** Switching an existing deployment changes
+> the database's geo-backup setting, which forces Azure to **recreate the PostgreSQL server**. Back up first,
+> or destroy and redeploy.
+
+### Tear down between sessions: the `destroy` workflow
+Actions → **destroy** → Run workflow → type `rg-dkm-health-prod`. It removes everything Terraform manages in
+the app resource group and keeps the registry and Terraform state. To rebuild, re-run the latest **cd**
+workflow on `main` (about 10–15 min). Safety guards: typed confirmation, `main` only, it shares a lock with
+deploys so they can't overlap, and **it refuses to run while the profile is `production`**.
 
 ## Repo map
 ```
@@ -173,10 +206,13 @@ app/main.py                 API: /health /ready /register /login
 tests/                      unit tests
 Dockerfile                  multi-stage, non-root, slim
 infra/*.tf                  Azure resources (Terraform)
+infra/profiles.tf           sandbox vs production sizing (cost/resilience only)
 scripts/bootstrap-azure.sh  one-time Azure + GitHub OIDC setup
 .github/workflows/ci.yml    PR gates 1–5
 .github/workflows/cd.yml    release, deploy, DAST (6–8)
-.checkov.yaml               IaC risk register (documented exceptions)
+.github/workflows/destroy.yml  manual, guarded teardown (sandbox only)
+.checkov.yaml               IaC risk register, production profile
+.checkov.sandbox.yaml       IaC risk register, sandbox profile
 .pre-commit-config.yaml     developer-side checks
 .github/dependabot.yml      dependency updates
 ```

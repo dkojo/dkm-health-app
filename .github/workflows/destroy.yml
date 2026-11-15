@@ -1,0 +1,66 @@
+# DESTROY: manually tear down the app environment to stop costs between study sessions.
+# Removes everything in rg-dkm-health-prod managed by Terraform (app, database, storage, logs).
+# Keeps rg-dkm-health-shared (container registry + Terraform state), so the next merge to main
+# (or a re-run of the cd workflow) rebuilds the environment from scratch in ~10-15 minutes.
+#
+# Guards: typed confirmation, main branch only, production-profile environments are refused,
+# and it shares the deploy concurrency group so it can never run during a deployment.
+name: destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type the resource group name (rg-dkm-health-prod) to confirm. ALL DATA IN IT WILL BE DELETED.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CD_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_deployment_profile: ${{ vars.DEPLOYMENT_PROFILE || 'production' }}
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    environment: production # same OIDC trust as deploy; adds the approval gate on GitHub Pro
+    permissions:
+      contents: read
+      id-token: write
+    defaults: { run: { working-directory: infra } }
+    steps:
+      - name: Safety checks
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          HAS_AZURE: ${{ vars.AZURE_CD_CLIENT_ID != '' && vars.TFSTATE_ACCOUNT != '' && vars.ACR_NAME != '' }}
+        working-directory: .
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          [ "$GITHUB_REF" = refs/heads/main ] || fail "Run this workflow from the main branch."
+          [ "$HAS_AZURE" = true ] || fail "Azure repository variables are not set; nothing to destroy."
+          [ "$CONFIRM" = rg-dkm-health-prod ] || fail "Confirmation did not match 'rg-dkm-health-prod'."
+          [ "$TF_VAR_deployment_profile" = sandbox ] || fail \
+            "Profile is '$TF_VAR_deployment_profile'. Only sandbox environments can be destroyed from CI; production teardown is a deliberate, reviewed change."
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.12.0, terraform_wrapper: false }
+      - name: Terraform destroy
+        run: |
+          terraform init -input=false -backend-config="storage_account_name=${{ vars.TFSTATE_ACCOUNT }}"
+          terraform destroy -input=false -auto-approve \
+            -var "acr_name=${{ vars.ACR_NAME }}" -var "image=unused-during-destroy"
+          {
+            echo "### Environment destroyed (profile: $TF_VAR_deployment_profile)"
+            echo "Kept: rg-dkm-health-shared (container registry + Terraform state)."
+            echo "Rebuild: re-run the latest **cd** workflow on main, or merge any PR."
+          } >> "$GITHUB_STEP_SUMMARY"

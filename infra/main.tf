@@ -26,7 +26,7 @@ resource "azurerm_user_assigned_identity" "app" {
   name                = "id-dkm-health-app"
   resource_group_name = local.rg
   location            = local.loc
-  tags                = var.tags
+  tags                = local.tags
 }
 
 resource "azurerm_role_assignment" "acr_pull" {
@@ -41,8 +41,8 @@ resource "azurerm_log_analytics_workspace" "main" {
   resource_group_name = local.rg
   location            = local.loc
   sku                 = "PerGB2018"
-  retention_in_days   = 90
-  tags                = var.tags
+  retention_in_days   = local.p.log_retention_days
+  tags                = local.tags
 }
 
 # ---------- Blob storage (audit trail) ----------
@@ -51,22 +51,22 @@ resource "azurerm_storage_account" "data" {
   resource_group_name               = local.rg
   location                          = local.loc
   account_tier                      = "Standard"
-  account_replication_type          = "GZRS" # geo + zone redundant
+  account_replication_type          = local.p.storage_replication
   min_tls_version                   = "TLS1_2"
   https_traffic_only_enabled        = true
   shared_access_key_enabled         = false # Entra ID only: no account keys / SAS
   allow_nested_items_to_be_public   = false
   infrastructure_encryption_enabled = true
   local_user_enabled                = false
-  tags                              = var.tags
+  tags                              = local.tags
 
   blob_properties {
     versioning_enabled = true
     delete_retention_policy {
-      days = 30
+      days = local.p.blob_retention_days
     }
     container_delete_retention_policy {
-      days = 30
+      days = local.p.blob_retention_days
     }
   }
 }
@@ -98,12 +98,12 @@ resource "azurerm_postgresql_flexible_server" "db" {
   resource_group_name           = local.rg
   location                      = local.loc
   version                       = "16"
-  sku_name                      = "B_Standard_B1ms" # POC size; use GP_* + HA for prod
+  sku_name                      = local.p.pg_sku
   storage_mb                    = 32768
-  backup_retention_days         = 35
-  geo_redundant_backup_enabled  = true
-  public_network_access_enabled = true # POC only. See README "Hardening backlog".
-  tags                          = var.tags
+  backup_retention_days         = local.p.pg_backup_days
+  geo_redundant_backup_enabled  = local.p.pg_geo_backup
+  public_network_access_enabled = true # until Sprint 3 private networking; see .checkov.yaml
+  tags                          = local.tags
 
   authentication {
     active_directory_auth_enabled = true
@@ -111,8 +111,16 @@ resource "azurerm_postgresql_flexible_server" "db" {
     tenant_id                     = data.azurerm_client_config.current.tenant_id
   }
 
+  dynamic "high_availability" {
+    for_each = local.p.pg_high_availability ? [1] : []
+    content {
+      mode = "ZoneRedundant"
+    }
+  }
+
   lifecycle {
-    ignore_changes = [zone]
+    # Azure picks/swaps zones on failover; don't fight it on every plan.
+    ignore_changes = [zone, high_availability[0].standby_availability_zone]
   }
 }
 
@@ -167,7 +175,7 @@ resource "azurerm_container_app_environment" "main" {
   resource_group_name        = local.rg
   location                   = local.loc
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-  tags                       = var.tags
+  tags                       = local.tags
 }
 
 resource "azurerm_container_app" "api" {
@@ -175,7 +183,7 @@ resource "azurerm_container_app" "api" {
   resource_group_name          = local.rg
   container_app_environment_id = azurerm_container_app_environment.main.id
   revision_mode                = "Single"
-  tags                         = var.tags
+  tags                         = local.tags
 
   identity {
     type         = "UserAssigned"
@@ -198,8 +206,8 @@ resource "azurerm_container_app" "api" {
   }
 
   template {
-    min_replicas = 1
-    max_replicas = 3
+    min_replicas = local.p.min_replicas
+    max_replicas = local.p.max_replicas
 
     container {
       name   = "api"

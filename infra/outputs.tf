@@ -6,6 +6,10 @@ output "postgres_fqdn" {
   value = azurerm_postgresql_flexible_server.db.fqdn
 }
 
+output "deployment_profile" {
+  value = var.deployment_profile
+}
+
 output "storage_account" {
   value = azurerm_storage_account.data.name
 }
