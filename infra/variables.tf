@@ -24,11 +24,20 @@ variable "image" {
   type        = string
 }
 
+variable "deployment_profile" {
+  description = "Cost/resilience profile, see profiles.tf. Defaults to production (safe by default); set the DEPLOYMENT_PROFILE repo variable to 'sandbox' for learning environments."
+  type        = string
+  default     = "production"
+  validation {
+    condition     = contains(["sandbox", "production"], var.deployment_profile)
+    error_message = "deployment_profile must be 'sandbox' or 'production'."
+  }
+}
+
 variable "tags" {
   type = map(string)
   default = {
     app        = "dkm-health-app"
-    env        = "prod"
     compliance = "hipaa-soc2"
     data_class = "confidential"
     managed_by = "terraform"

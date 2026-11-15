@@ -107,4 +107,5 @@ gh variable set AZURE_CI_CLIENT_ID    --body "$CI_APP"
 gh variable set AZURE_CD_CLIENT_ID    --body "$CD_APP"
 gh variable set ACR_NAME              --body "$ACR_NAME"
 gh variable set TFSTATE_ACCOUNT       --body "$TFSTATE_SA"
+gh variable set DEPLOYMENT_PROFILE    --body "sandbox"   # cost-optimised; see infra/profiles.tf
 EOF

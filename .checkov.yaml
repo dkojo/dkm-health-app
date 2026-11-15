@@ -1,8 +1,9 @@
-# Checkov config = the IaC risk register. Every skip is a documented, time-boxed risk acceptance
-# (SOC2 CC3.2 / CC9.1). Remove the line when the backlog item ships; the pipeline then enforces it.
+# Checkov config = the IaC risk register for the PRODUCTION profile.
+# Every skip is a documented, time-boxed risk acceptance (SOC2 CC3.2 / CC9.1).
+# Remove a line when its backlog item ships; the pipeline then enforces the check.
+# Used by: the plan policy gate (CI plan job / CD deploy) when profile=production.
 compact: true
 quiet: true
-framework: [terraform]
 skip-check:
   # --- Accepted for POC; closed by Sprint 3 "private networking" (VNet + private endpoints) ---
   - CKV_AZURE_59   # storage public network access (Entra-only auth, no keys/SAS, TLS1.2)
