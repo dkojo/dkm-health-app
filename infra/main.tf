@@ -12,6 +12,9 @@ data "azurerm_container_registry" "acr" {
 locals {
   rg  = data.azurerm_resource_group.app.name
   loc = data.azurerm_resource_group.app.location
+  # PostgreSQL may need its own region: new/free subscriptions are often blocked from provisioning
+  # it in busy regions (e.g. eastus2) while everything else works there.
+  pg_loc = var.pg_location != "" ? var.pg_location : local.loc
   # Deterministic suffix so every resource name is known at PLAN time. That lets reviewers and the
   # Checkov plan gate verify names before apply (a random suffix is "known after apply").
   # Same scheme as scripts/bootstrap-azure.sh (first 6 hex chars of sha256(subscription id)).
@@ -93,7 +96,7 @@ resource "azurerm_monitor_diagnostic_setting" "blob" {
 resource "azurerm_postgresql_flexible_server" "db" {
   name                          = "psql-dkm-health-${local.suffix}"
   resource_group_name           = local.rg
-  location                      = local.loc
+  location                      = local.pg_loc
   version                       = "16"
   sku_name                      = local.p.pg_sku
   storage_mb                    = 32768

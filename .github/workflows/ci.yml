@@ -19,6 +19,7 @@ env:
   PYTHON_VERSION: "3.12"
   # sandbox | production (see infra/profiles.tf). Unset => production, the safe default.
   TF_VAR_deployment_profile: ${{ vars.DEPLOYMENT_PROFILE || 'production' }}
+  TF_VAR_pg_location: ${{ vars.PG_LOCATION }}
 
 jobs:
   # 1. SECRETS: block any committed credential (gitleaks over full history of the PR)
