@@ -27,6 +27,8 @@ env:
   ARM_CLIENT_ID: ${{ vars.AZURE_CD_CLIENT_ID }}
   ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
   ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  TFSTATE_ACCOUNT: ${{ vars.TFSTATE_ACCOUNT }}
   TF_VAR_deployment_profile: ${{ vars.DEPLOYMENT_PROFILE || 'production' }}
 
 jobs:
@@ -56,9 +58,9 @@ jobs:
         with: { terraform_version: 1.12.0, terraform_wrapper: false }
       - name: Terraform destroy
         run: |
-          terraform init -input=false -backend-config="storage_account_name=${{ vars.TFSTATE_ACCOUNT }}"
+          terraform init -input=false -backend-config="storage_account_name=$TFSTATE_ACCOUNT"
           terraform destroy -input=false -auto-approve \
-            -var "acr_name=${{ vars.ACR_NAME }}" -var "image=unused-during-destroy"
+            -var "acr_name=$ACR_NAME" -var "image=unused-during-destroy"
           {
             echo "### Environment destroyed (profile: $TF_VAR_deployment_profile)"
             echo "Kept: rg-dkm-health-shared (container registry + Terraform state)."

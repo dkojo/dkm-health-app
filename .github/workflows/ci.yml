@@ -73,12 +73,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { persist-credentials: false }
-      - run: docker build -t dkm-health-app:${{ github.sha }} .
+      - run: docker build -t "dkm-health-app:$GITHUB_SHA" .
       - name: Image scan (Trivy)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image \
             --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --scanners vuln,secret,misconfig \
-            dkm-health-app:${{ github.sha }}
+            "dkm-health-app:$GITHUB_SHA"
       - name: Dockerfile scan (Trivy config)
         run: |
           docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" config --exit-code 1 \
@@ -101,19 +101,21 @@ jobs:
       ARM_CLIENT_ID: ${{ vars.AZURE_CI_CLIENT_ID }}
       ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      TFSTATE_ACCOUNT: ${{ vars.TFSTATE_ACCOUNT }}
     defaults: { run: { working-directory: infra } }
     steps:
       - uses: actions/checkout@v4
         with: { persist-credentials: false }
       - uses: hashicorp/setup-terraform@v3
         with: { terraform_version: 1.12.0, terraform_wrapper: false }
-      - run: terraform init -input=false -backend-config="storage_account_name=${{ vars.TFSTATE_ACCOUNT }}"
+      - run: terraform init -input=false -backend-config="storage_account_name=$TFSTATE_ACCOUNT"
       - name: Terraform plan
         run: |
           set -o pipefail # don't let `| tee` hide a failed plan
           terraform plan -input=false -lock=false -no-color -out=tfplan \
-            -var "acr_name=${{ vars.ACR_NAME }}" \
-            -var "image=${{ vars.ACR_NAME }}.azurecr.io/dkm-health-app:pr-${{ github.sha }}" \
+            -var "acr_name=$ACR_NAME" \
+            -var "image=$ACR_NAME.azurecr.io/dkm-health-app:pr-$GITHUB_SHA" \
             | tee plan.txt
           { echo "### Terraform plan (profile: $TF_VAR_deployment_profile)"; echo '```'; tail -n 60 plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Policy gate on resolved plan (Checkov)
