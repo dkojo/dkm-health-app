@@ -88,19 +88,23 @@ Then in GitHub → **Settings**:
 - **Code security:** turn on Dependabot alerts, secret scanning and push protection.
 
 ### Step 2: Bootstrap Azure (one time, about 5 min)
-Open **Azure Cloud Shell** (the `>_` icon in the portal, then choose Bash), upload `scripts/bootstrap-azure.sh`, then run:
+Run it from **Git Bash** on Windows, any Linux/macOS terminal, or **Azure Cloud Shell** (Bash). On your own
+machine you need the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and, ideally, the GitHub CLI.
 ```bash
-GITHUB_REPO=<your-github-user>/dkm-health-app bash bootstrap-azure.sh
+az login                                   # browser sign-in; pick your subscription if asked
+cd dkm-health-app                          # repo root
+GITHUB_REPO=<your-github-user>/dkm-health-app bash scripts/bootstrap-azure.sh
 ```
-It creates two resource groups, the Terraform state storage, ACR, and two least-privilege identities for
-GitHub (CI is read-only; CD can deploy only from `main`/`production`). It finishes by printing seven
-`gh variable set ...` commands.
+It shows what it will create and asks for confirmation. Then it creates two resource groups, the Terraform
+state storage, ACR, and two least-privilege identities for GitHub (CI is read-only; CD can deploy only from
+`main`/`production`). Optional settings: `LOCATION=<region>` (default `eastus2`) and `YES=1` (skip the prompt).
+The script is safe to re-run, and it handles Git Bash's path rewriting and the Windows CLI's CRLF output.
 
 ### Step 3: Connect GitHub to Azure
-Run the seven printed `gh variable set` commands in your repo folder. They are **variables, not secrets**:
-client IDs aren't sensitive, because OIDC trust is tied to your repo and branch. The last one,
-`DEPLOYMENT_PROFILE=sandbox`, picks the cost-optimised profile (see section 7). Decide on the profile
-**before** the first deploy.
+If the GitHub CLI is logged in where you ran the script, it **sets the seven repository variables for you**.
+Otherwise it prints seven `gh variable set` commands to run where it is. They are **variables, not secrets**:
+client IDs aren't sensitive, because OIDC trust is tied to your repo and branch. `DEPLOYMENT_PROFILE=sandbox`
+picks the cost-optimised profile (see section 7). Decide on the profile **before** the first deploy.
 
 ### Step 4: First run
 ```bash
