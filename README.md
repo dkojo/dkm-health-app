@@ -124,7 +124,7 @@ gh pr create --fill
 
 ### Run locally (no Azure needed)
 ```bash
-pip install -r requirements-dev.txt && pytest
+pip install -r requirements-dev.in && pytest      # .in = ranges; quick local setup on any OS
 docker build -t dkm-health-app . && docker run -p 8000:8000 dkm-health-app   # GET :8000/health
 ```
 
@@ -144,6 +144,22 @@ docker build -t dkm-health-app . && docker run -p 8000:8000 dkm-health-app   # G
 
 Running across all stages: Dependabot (weekly), GitHub secret scanning with push protection, and audit logs in Log Analytics.
 
+**Supply chain:** every GitHub Action is pinned to a full commit SHA (tags can be moved; SHAs can't). Every Python
+install, in CI and in the Docker image, uses hash-locked files with `--require-hashes --only-binary :all:`. A
+tampered or substituted package fails the install, and no package's setup script runs. CI tools live in their own
+virtualenvs, separate from the app. You edit the `*.in` files; the `*.txt` locks are generated, and Dependabot
+regenerates them:
+
+| Edit | Generated lock (with hashes) | Used by |
+|---|---|---|
+| `app/requirements.in` | `app/requirements.txt` | Docker image, pip-audit |
+| `requirements-dev.in` | `requirements-dev.txt` | CI tests and lint |
+| `.github/tools/sast.in` | `.github/tools/sast.txt` | Semgrep, pip-audit |
+| `.github/tools/checkov.in` | `.github/tools/checkov.txt` | Checkov (static + plan gate) |
+
+To regenerate after editing an `.in` file (Linux, so it matches CI and the image):
+`docker run --rm -v "$PWD:/src" -w /src python:3.12-slim sh -c "pip install pip-tools && pip-compile --generate-hashes --allow-unsafe --strip-extras --no-emit-index-url -o app/requirements.txt app/requirements.in"`
+
 ## 5. Agile delivery plan (2-week sprints)
 
 | Sprint | Goal | Done when |
@@ -153,7 +169,7 @@ Running across all stages: Dependabot (weekly), GitHub secret scanning with push
 | **2: Data lifecycle** | Versioned migrations (Alembic) as a pipeline step; staging environment before prod | Schema changes are reviewed in PRs and tested in staging first |
 | **3: Private networking** | VNet, private endpoints for Postgres/Blob/ACR, remove public access; delete the matching `.checkov.yaml` skips | Checkov passes with no network exceptions |
 | **4: Operate** | Alerts (failed logins, 5xx, lockouts), Defender for Cloud, immutable (WORM) audit container, 6-year log archive, DR test | Runbook + restore drill evidence |
-| **5: Audit readiness** | Pin actions to commit SHAs, access reviews, policies (Azure Policy HIPAA/HITRUST initiative), pen test | Evidence package for the SOC 2 Type I auditor |
+| **5: Audit readiness** | Access reviews, policies (Azure Policy HIPAA/HITRUST initiative), pen test | Evidence package for the SOC 2 Type I auditor |
 
 ## 6. Known POC gaps (tracked, not hidden)
 - Postgres and Storage have public endpoints (they only accept Entra ID auth, over TLS). Fixed in Sprint 3.
@@ -163,7 +179,8 @@ Running across all stages: Dependabot (weekly), GitHub secret scanning with push
 - Schema is created when the app starts. Replaced by migrations in Sprint 2.
 - Cosign keyless signing records the repo name and image digest in the public Sigstore transparency log
   (no code or data). Use a Key Vault key instead if that isn't acceptable.
-- Tool versions in workflows (Trivy, Gitleaks) are pinned by hand. Review them monthly, and pin actions to SHAs in Sprint 5.
+- Container images run inside workflows (Gitleaks, Trivy, ZAP `stable`) are pinned by tag, not digest, and Dependabot
+  doesn't track them. Pin them by digest and review monthly. (Actions and Python packages are already SHA/hash-pinned.)
 
 ## 7. Deployment profiles and cost (FinOps)
 

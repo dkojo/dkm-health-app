@@ -52,9 +52,9 @@ jobs:
           [ "$CONFIRM" = rg-dkm-health-prod ] || fail "Confirmation did not match 'rg-dkm-health-prod'."
           [ "$TF_VAR_deployment_profile" = sandbox ] || fail \
             "Profile is '$TF_VAR_deployment_profile'. Only sandbox environments can be destroyed from CI; production teardown is a deliberate, reviewed change."
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with: { terraform_version: 1.12.0, terraform_wrapper: false }
       - name: Terraform destroy
         run: |

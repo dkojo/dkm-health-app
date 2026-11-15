@@ -1,0 +1,6 @@
+# Dev/test dependencies. Compiled (with hashes) to requirements-dev.txt; edit this file, not the .txt.
+-c app/requirements.txt
+-r app/requirements.in
+pytest>=8.3
+httpx>=0.28
+ruff>=0.8

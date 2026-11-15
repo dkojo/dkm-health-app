@@ -1,11 +1,19 @@
 version: 2
 updates:
+  # Python: Dependabot edits the .in ranges and regenerates the hash-locked .txt (pip-compile).
   - package-ecosystem: pip
-    directory: /app
+    directory: /app # runtime deps baked into the container image
+    schedule: { interval: weekly }
+  - package-ecosystem: pip
+    directory: / # dev/test deps (requirements-dev.in -> .txt)
+    schedule: { interval: weekly }
+  - package-ecosystem: pip
+    directory: /.github/tools # CI tools: Checkov, Semgrep, pip-audit
     schedule: { interval: weekly }
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
+  # Actions are pinned to commit SHAs; Dependabot bumps the SHA and the "# vX.Y.Z" comment together.
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }

@@ -1,0 +1,2 @@
+# CI-only tool, installed in an isolated venv. Compiled with hashes to checkov.txt.
+checkov
