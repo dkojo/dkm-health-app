@@ -36,7 +36,7 @@ jobs:
     outputs:
       image: ${{ steps.push.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
       - uses: azure/login@v2
         with:
@@ -80,7 +80,7 @@ jobs:
     outputs:
       url: ${{ steps.tf.outputs.url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
       - uses: azure/login@v2
         with:
