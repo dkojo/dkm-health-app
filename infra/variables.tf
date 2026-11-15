@@ -3,6 +3,17 @@ variable "location" {
   default = "eastus2"
 }
 
+variable "pg_location" {
+  description = <<-EOT
+    Region for the PostgreSQL server only; empty = the app resource group's region. Set when Azure
+    restricts PostgreSQL for your subscription there ("The value of the 'Version' should be in: []").
+    Check with: az postgres flexible-server list-skus --location <region> --query "[0].reason"
+    Changing it on an existing server forces Azure to RECREATE the server (data loss).
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "app_resource_group" {
   description = "Created by scripts/bootstrap-azure.sh; the CD identity is scoped to it."
   type        = string
