@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# One-time Azure foundation for dkm-health-app. Run in Azure Cloud Shell (Bash):
-#   GITHUB_REPO=<owner>/<repo> bash bootstrap-azure.sh
+# One-time Azure foundation for dkm-health-app. Run from the repo root in Git Bash (Windows),
+# any Linux/macOS shell, or Azure Cloud Shell (Bash), after `az login`:
+#   GITHUB_REPO=<owner>/<repo> bash scripts/bootstrap-azure.sh
+# Optional: LOCATION=<azure-region> (default eastus2), YES=1 to skip the confirmation prompt.
 #
 # Creates:
 #   rg-dkm-health-shared : Terraform state storage + Azure Container Registry (artifact repository)
@@ -11,19 +13,43 @@
 # Safe to re-run.
 set -euo pipefail
 
+# --- Git Bash (Windows) compatibility ---------------------------------------------------------
+# 1. Stop MSYS from rewriting arguments like "/subscriptions/..." into Windows paths.
+# 2. The Windows Azure CLI ends every output line with CRLF; strip the CR so captured IDs are clean.
+export MSYS_NO_PATHCONV=1
+type -P az >/dev/null || { echo "Azure CLI not found. Install it, then run 'az login'." >&2; exit 1; }
+az() { command az "$@" | tr -d '\r'; }
+
+# Temp files are always removed, even if a command fails midway (set -e).
+CLEANUP=()
+trap 'rm -f "${CLEANUP[@]}"' EXIT
+
 : "${GITHUB_REPO:?set GITHUB_REPO=<owner>/<repo>}"
 LOCATION="${LOCATION:-eastus2}"
 SHARED_RG=rg-dkm-health-shared
 APP_RG=rg-dkm-health-prod
 TAGS="app=dkm-health-app compliance=hipaa-soc2 managed_by=bootstrap"
 
-SUB_ID=$(az account show --query id -o tsv)
+SUB_ID=$(az account show --query id -o tsv 2>/dev/null) || true
+[ -n "$SUB_ID" ] || { echo "Not logged in to Azure. Run 'az login' first." >&2; exit 1; }
+SUB_NAME=$(az account show --query name -o tsv)
 TENANT_ID=$(az account show --query tenantId -o tsv)
 SUFFIX=$(echo -n "$SUB_ID" | sha256sum | cut -c1-6)
 TFSTATE_SA="sttfdkmhealth${SUFFIX}"
 ACR_NAME="acrdkmhealth${SUFFIX}"
 
-echo "==> Subscription $SUB_ID, region $LOCATION"
+cat <<EOF
+==> About to create the dkm-health-app foundation:
+    Subscription : $SUB_NAME ($SUB_ID)
+    Region       : $LOCATION
+    GitHub repo  : $GITHUB_REPO
+    Creates      : $SHARED_RG, $APP_RG, storage $TFSTATE_SA, registry $ACR_NAME,
+                   Entra apps dkm-health-github-ci / dkm-health-github-cd (+ role assignments)
+EOF
+if [ "${YES:-}" != 1 ]; then
+  read -rp "Proceed? [y/N] " answer
+  [[ "$answer" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 1; }
+fi
 
 echo "==> Registering resource providers"
 for ns in Microsoft.App Microsoft.ContainerRegistry Microsoft.DBforPostgreSQL \
@@ -64,9 +90,12 @@ ensure_sp() {
 
 federate() { # app_id cred_name subject
   az ad app federated-credential list --id "$1" --query "[?name=='$2']" -o tsv | grep -q . && return
-  az ad app federated-credential create --id "$1" -o none --parameters "{
-    \"name\": \"$2\", \"issuer\": \"https://token.actions.githubusercontent.com\",
-    \"subject\": \"$3\", \"audiences\": [\"api://AzureADTokenExchange\"]}"
+  # JSON goes via a file (relative path) so Windows argument quoting can't mangle it.
+  local f; f=$(mktemp fedcred.XXXXXX)
+  CLEANUP+=("$f")
+  printf '{"name":"%s","issuer":"https://token.actions.githubusercontent.com","subject":"%s","audiences":["api://AzureADTokenExchange"]}' \
+    "$2" "$3" > "$f"
+  az ad app federated-credential create --id "$1" -o none --parameters "@$f"; rm -f "$f"
 }
 
 grant() { # sp_object_id role scope
@@ -96,16 +125,24 @@ grant "$CD_SP" AcrPush "$ACR_ID"
 grant "$CD_SP" "Role Based Access Control Administrator" "$ACR_ID"  # to give the app AcrPull
 grant "$CD_SP" "Storage Blob Data Contributor" "$TFSTATE_SCOPE"
 
-cat <<EOF
-
-==> Done. Set these as GitHub repository *variables* (not secrets: none of them are sensitive).
-    From a machine with the GitHub CLI, in your repo folder:
-
-gh variable set AZURE_TENANT_ID       --body "$TENANT_ID"
-gh variable set AZURE_SUBSCRIPTION_ID --body "$SUB_ID"
-gh variable set AZURE_CI_CLIENT_ID    --body "$CI_APP"
-gh variable set AZURE_CD_CLIENT_ID    --body "$CD_APP"
-gh variable set ACR_NAME              --body "$ACR_NAME"
-gh variable set TFSTATE_ACCOUNT       --body "$TFSTATE_SA"
-gh variable set DEPLOYMENT_PROFILE    --body "sandbox"   # cost-optimised; see infra/profiles.tf
-EOF
+# GitHub repository *variables* (not secrets: none of these values are sensitive).
+VARS=(
+  "AZURE_TENANT_ID=$TENANT_ID"
+  "AZURE_SUBSCRIPTION_ID=$SUB_ID"
+  "AZURE_CI_CLIENT_ID=$CI_APP"
+  "AZURE_CD_CLIENT_ID=$CD_APP"
+  "ACR_NAME=$ACR_NAME"
+  "TFSTATE_ACCOUNT=$TFSTATE_SA"
+  "DEPLOYMENT_PROFILE=sandbox" # cost-optimised; see infra/profiles.tf
+)
+echo
+if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
+  echo "==> Setting GitHub repository variables on $GITHUB_REPO"
+  for kv in "${VARS[@]}"; do
+    gh variable set "${kv%%=*}" --repo "$GITHUB_REPO" --body "${kv#*=}" && echo "    set ${kv%%=*}"
+  done
+  echo "==> Done. Re-run the latest 'cd' workflow on main (or merge any PR) to deploy."
+else
+  echo "==> Done. GitHub CLI not available/logged in here; run these where it is:"
+  for kv in "${VARS[@]}"; do printf 'gh variable set %-22s --repo %s --body "%s"\n' "${kv%%=*}" "$GITHUB_REPO" "${kv#*=}"; done
+fi
