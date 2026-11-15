@@ -36,9 +36,9 @@ jobs:
     outputs:
       image: ${{ steps.push.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
-      - uses: azure/login@v2
+      - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CD_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -64,7 +64,7 @@ jobs:
         run: |
           cosign sign --yes "${{ steps.push.outputs.image }}"
           cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "${{ steps.push.outputs.image }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: sbom, path: sbom.cdx.json, retention-days: 90 }
 
   # 7. DEPLOY to production: waits for a required reviewer on the "production" environment
@@ -80,9 +80,9 @@ jobs:
     outputs:
       url: ${{ steps.tf.outputs.url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { persist-credentials: false }
-      - uses: azure/login@v2
+      - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CD_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -95,7 +95,7 @@ jobs:
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/cd.yml@refs/heads/main" \
             > /dev/null
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with: { terraform_version: 1.12.0, terraform_wrapper: false }
       - name: Terraform plan + apply
         id: tf
@@ -123,6 +123,6 @@ jobs:
           mkdir -p zap && chmod 777 zap
           docker run --rm -v "$PWD/zap:/zap/wrk" ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py -t "${{ needs.deploy.outputs.url }}" -r zap-report.html -I
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: zap-report, path: zap/zap-report.html, retention-days: 90 }
