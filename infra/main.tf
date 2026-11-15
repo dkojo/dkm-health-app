@@ -189,6 +189,7 @@ resource "azurerm_container_app" "api" {
   name                         = "ca-dkm-health-app"
   resource_group_name          = local.rg
   container_app_environment_id = azurerm_container_app_environment.main.id
+  workload_profile_name        = "Consumption" # Azure assigns it; declared to avoid plan drift
   revision_mode                = "Single"
   tags                         = local.tags
 
