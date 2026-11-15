@@ -126,10 +126,23 @@ grant() { # sp_object_id role scope
   echo "FAILED: $2 on $3" >&2; exit 1
 }
 
+# Reader can't call listSecrets, but azurerm calls it when refreshing a Container App during plan,
+# so PR plans fail once the app exists. This custom role adds only that action (no writes).
+PLAN_ROLE="dkm-health Container App plan reader"
+ensure_plan_role() {
+  [ -n "$(az role definition list --custom-role-only true --name "$PLAN_ROLE" --query "[0].id" -o tsv)" ] && return
+  local f; f=$(mktemp planrole.XXXXXX)
+  CLEANUP+=("$f")
+  printf '{"Name":"%s","Description":"Lets the read-only CI identity refresh Container Apps in terraform plan (azurerm calls listSecrets). No write actions.","Actions":["Microsoft.App/containerApps/listSecrets/action"],"NotActions":[],"DataActions":[],"NotDataActions":[],"AssignableScopes":["%s"]}'     "$PLAN_ROLE" "$APP_RG_ID" > "$f"
+  az role definition create --role-definition "@$f" -o none; rm -f "$f"
+}
+
 echo "==> CI identity (read-only, pull requests)"
 read -r CI_APP CI_SP <<<"$(ensure_sp dkm-health-github-ci)"
 federate "$CI_APP" github-pr "${OIDC_PREFIX}:pull_request"
 grant "$CI_SP" Reader "$APP_RG_ID"
+ensure_plan_role
+grant "$CI_SP" "$PLAN_ROLE" "$APP_RG_ID" # grant() retries while the new role replicates
 grant "$CI_SP" Reader "$SHARED_RG_ID"
 grant "$CI_SP" "Storage Blob Data Reader" "$TFSTATE_SCOPE"
 
