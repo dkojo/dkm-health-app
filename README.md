@@ -106,6 +106,12 @@ Otherwise it prints seven `gh variable set` commands to run where it is. They ar
 client IDs aren't sensitive, because OIDC trust is tied to your repo and branch. `DEPLOYMENT_PROFILE=sandbox`
 picks the cost-optimised profile (see section 7). Decide on the profile **before** the first deploy.
 
+New or free-tier subscriptions are often blocked from creating PostgreSQL in busy regions (eastus2, eastus,
+westus2). The apply then fails with `The value of the 'Version' should be in: []`. Check your region first:
+`az postgres flexible-server list-skus --location <region> --query "[0].reason"` (`null` means it is allowed).
+If it is blocked, set the optional variable `PG_LOCATION` (e.g. `gh variable set PG_LOCATION --body centralus`).
+Only the database moves there. Set it before the first deploy, because changing it later recreates the server.
+
 ### Step 4: First run
 ```bash
 git checkout -b feat/first-change
