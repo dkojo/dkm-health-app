@@ -26,6 +26,7 @@ env:
   ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
   # sandbox | production (see infra/profiles.tf). Unset => production, the safe default.
   TF_VAR_deployment_profile: ${{ vars.DEPLOYMENT_PROFILE || 'production' }}
+  TF_VAR_pg_location: ${{ vars.PG_LOCATION }}
 
 jobs:
   # 6. RELEASE ARTIFACT: build once, scan, push to ACR, sign + attach SBOM
