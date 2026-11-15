@@ -82,7 +82,10 @@ jobs:
   # 5. PLAN: show exactly what would change in Azure (read-only identity, no lock)
   plan:
     needs: [secrets-scan, code, iac, image]
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Same-repo PRs only (forks get no Azure token), and only once Azure variables are set.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.AZURE_CI_CLIENT_ID != '' && vars.TFSTATE_ACCOUNT != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
