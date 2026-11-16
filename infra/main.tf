@@ -62,15 +62,17 @@ resource "azurerm_log_analytics_workspace" "main" {
 
 # ---------- Blob storage (audit trail) ----------
 resource "azurerm_storage_account" "data" {
-  name                              = "stdkmhealth${local.suffix}"
-  resource_group_name               = local.rg
-  location                          = local.loc
-  account_tier                      = "Standard"
-  account_replication_type          = local.p.storage_replication
-  min_tls_version                   = "TLS1_2"
-  https_traffic_only_enabled        = true
-  shared_access_key_enabled         = false      # Entra ID only: no account keys / SAS
-  public_network_access             = "Disabled" # private endpoint only (network.tf)
+  name                       = "stdkmhealth${local.suffix}"
+  resource_group_name        = local.rg
+  location                   = local.loc
+  account_tier               = "Standard"
+  account_replication_type   = local.p.storage_replication
+  min_tls_version            = "TLS1_2"
+  https_traffic_only_enabled = true
+  shared_access_key_enabled  = false # Entra ID only: no account keys / SAS
+  # Private endpoint only (network.tf). The older argument on purpose: Checkov's CKV_AZURE_59 doesn't recognise
+  # azurerm 5's `public_network_access = "Disabled"` yet. Switch when it does (removed in azurerm 6).
+  public_network_access_enabled     = false
   allow_nested_items_to_be_public   = false
   infrastructure_encryption_enabled = true
   local_user_enabled                = false
