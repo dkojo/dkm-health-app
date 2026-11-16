@@ -59,6 +59,22 @@ def ensure_app_role(conn: psycopg.Connection, role: str) -> None:
     log.info("created app role %s", role)
 
 
+def verify_least_privilege(conn: psycopg.Connection, role: str) -> None:
+    """Fail the deploy if the app role has admin-level rights (e.g. left over from an old setup)."""
+    row = conn.execute(
+        "SELECT rolsuper, rolcreaterole, rolcreatedb, rolbypassrls,"
+        " CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'azure_pg_admin')"
+        "   THEN pg_has_role(%s, 'azure_pg_admin', 'MEMBER') ELSE false END"
+        " FROM pg_roles WHERE rolname = %s",
+        (role, role),
+    ).fetchone()
+    if row is None or any(row):
+        raise RuntimeError(
+            f"app role {role!r} is not least-privilege "
+            f"(superuser, createrole, createdb, bypassrls, azure_pg_admin): {row}"
+        )
+
+
 def pending(applied: set[str]) -> list[Path]:
     return [p for p in sorted(MIGRATIONS_DIR.glob("*.sql")) if p.stem not in applied]
 
@@ -74,6 +90,7 @@ def migrate(conn: psycopg.Connection, app_role: str) -> list[str]:
             " version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
         )
         ensure_app_role(conn, app_role)
+        verify_least_privilege(conn, app_role)
         applied = {r[0] for r in conn.execute("SELECT version FROM app.schema_migrations")}
         done = []
         for path in pending(applied):
