@@ -54,8 +54,16 @@ def database():
 def migrated(database):
     os.environ["LOCAL_APP_ROLE_PASSWORD"] = APP_PASSWORD
     try:
-        with psycopg.connect(database["migrator_url"]) as conn:
-            first = migrate.migrate(conn, APP_ROLE)
+        # Like Azure: the role is created over a separate connection to the "postgres" database.
+        roles_url = database["migrator_url"].replace(
+            f"dbname={database['name']}", "dbname=postgres"
+        )
+        assert roles_url != database["migrator_url"]
+        with (
+            psycopg.connect(database["migrator_url"]) as conn,
+            psycopg.connect(roles_url) as roles_conn,
+        ):
+            first = migrate.migrate(conn, APP_ROLE, roles_conn)
         with psycopg.connect(database["migrator_url"]) as conn:
             second = migrate.migrate(conn, APP_ROLE)
     finally:
