@@ -7,10 +7,6 @@ compact: true
 quiet: true
 skip-check:
   # --- Same as .checkov.yaml (production) ---
-  - CKV_AZURE_59
-  - CKV2_AZURE_33
-  - CKV2_AZURE_57
-  - CKV2_AZURE_26
   - CKV2_AZURE_1
   - CKV_AZURE_33
   - CKV2_AZURE_21

@@ -48,7 +48,7 @@
 
   <!-- regions -->
   <rect x="250" y="100" width="600" height="500" rx="18" class="region" stroke="#60a5fa" stroke-opacity=".5"/>
-  <text x="270" y="124" class="k" fill="#60a5fa">AZURE · EASTUS2 · rg-dkm-health-prod</text>
+  <text x="270" y="124" class="k" fill="#60a5fa">EASTUS2 · PRIVATE VNET 10.40.0.0/16</text>
   <rect x="890" y="250" width="350" height="190" rx="18" class="region" stroke="#a78bfa" stroke-opacity=".6"/>
   <text x="910" y="430" class="k" fill="#a78bfa">AZURE · CENTRALUS · PG_LOCATION</text>
   <rect x="890" y="100" width="350" height="110" rx="18" class="region" stroke="#94a3b8" stroke-opacity=".4"/>
@@ -116,7 +116,7 @@
   <rect x="620" y="140" width="200" height="100" rx="12" class="node" stroke="#f472b6"/>
   <text x="636" y="170" class="t">Blob Storage</text>
   <text x="636" y="192" class="s">audit container</text>
-  <text x="636" y="210" class="s">Entra-only · keys disabled</text>
+  <text x="636" y="210" class="s">private endpoint · no keys</text>
 
   <rect x="620" y="440" width="200" height="100" rx="12" class="node" stroke="#fb923c"/>
   <text x="636" y="470" class="t">Log Analytics</text>
@@ -125,7 +125,7 @@
 
   <rect x="930" y="290" width="280" height="110" rx="12" class="node" stroke="#a78bfa" stroke-width="2"/>
   <text x="946" y="320" class="t">PostgreSQL Flexible · v16</text>
-  <text x="946" y="342" class="s">Entra-only auth · TLS required</text>
+  <text x="946" y="342" class="s">no public access · Entra-only</text>
   <text x="946" y="360" class="s">schema app · versioned migrations</text>
   <text x="946" y="380" class="s">B1ms (sandbox profile)</text>
 
@@ -139,7 +139,7 @@
   <text x="916" y="540" class="s">no passwords · no keys · nothing to rotate</text>
 
   <!-- labels on flows -->
-  <text x="640" y="326" class="s">SQL over TLS · Entra token</text>
+  <text x="640" y="326" class="s">private endpoint · TLS · Entra token</text>
   <text x="640" y="380" class="s" fill="#34d399">rows</text>
   <text x="480" y="147" class="s">image pull (AcrPull)</text>
   <text x="600" y="578" class="s">token request</text>

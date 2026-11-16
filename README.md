@@ -196,7 +196,9 @@ To regenerate after editing an `.in` file (Linux, so it matches CI and the image
 | **5: Audit readiness** | Access reviews, policies (Azure Policy HIPAA/HITRUST initiative), pen test | Evidence package for the SOC 2 Type I auditor |
 
 ## 6. Known POC gaps (tracked, not hidden)
-- Postgres and Storage have public endpoints (they only accept Entra ID auth, over TLS). Fixed in Sprint 3.
+- The container registry is still public: private endpoints need its Premium SKU (~$50/month). Pulls use a managed
+  identity, and only images signed by this repo's CD workflow can deploy.
+- Outbound traffic uses Azure's default outbound access. Production would add a NAT gateway for a fixed egress IP.
 - Break-glass group membership is permanent. Entra PIM would make it just-in-time and approved, but it needs an
   Entra ID P2 licence.
 - `/login` checks credentials but doesn't issue a session. That comes with Entra External ID in Sprint 1.
@@ -248,17 +250,20 @@ az ad group member add --group "$GROUP_ID" --member-id "$ME"
 gh variable set DB_ADMIN_GROUP_ID --body "$GROUP_ID"   # the next deploy makes the group a database admin
 ```
 
-**In an emergency.** You need `psql`, which ships in the PostgreSQL client tools. The database only accepts
-Azure services, so open it to your IP for the session and always close it again:
+**In an emergency.** You need `psql`, which ships in the PostgreSQL client tools. The database has no public
+endpoint, so switch public access on for your IP only, for the session, and always switch it off again. (The next
+deploy also switches it off, because Terraform reverts the drift.)
 ```bash
 RG=rg-dkm-health-prod; PG=psql-dkm-health-<suffix>; MYIP=$(curl -s https://api.ipify.org)
+az postgres flexible-server update -g $RG -n $PG --public-access Enabled -o none
 az postgres flexible-server firewall-rule create -g $RG --server-name $PG --name breakglass --start-ip-address $MYIP --end-ip-address $MYIP
 export PGPASSWORD=$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv | tr -d '\r')
 psql "host=$PG.postgres.database.azure.com dbname=dkmhealth user=dkm-health-db-admins sslmode=require"
-az postgres flexible-server firewall-rule delete -g $RG --server-name $PG --name breakglass --yes; unset PGPASSWORD
+az postgres flexible-server firewall-rule delete -g $RG --server-name $PG --name breakglass --yes
+az postgres flexible-server update -g $RG -n $PG --public-access Disabled -o none; unset PGPASSWORD
 ```
 The token is valid for about an hour. Every session is audited: PostgreSQL logs each connection with the user
-name, and the Azure activity log records the firewall change. Fix data, not schema. A schema fix belongs in a
+name, and the Azure activity log records the public-access and firewall changes. Fix data, not schema. A schema fix belongs in a
 new migration, or the next deploy won't know about it.
 
 ### Tear down between sessions: the `destroy` workflow

@@ -5,11 +5,6 @@
 compact: true
 quiet: true
 skip-check:
-  # --- Accepted for POC; closed by Sprint 3 "private networking" (VNet + private endpoints) ---
-  - CKV_AZURE_59   # storage public network access (Entra-only auth, no keys/SAS, TLS1.2)
-  - CKV2_AZURE_33  # storage private endpoint
-  - CKV2_AZURE_57  # postgres private endpoint
-  - CKV2_AZURE_26  # postgres "allow Azure services" firewall rule (Entra-only auth, TLS required)
   # --- Accepted by design ---
   - CKV2_AZURE_1   # CMK: platform-managed keys + infrastructure (double) encryption; revisit if a customer contract requires CMK
   - CKV_AZURE_33   # queue service logging: no queues are used
