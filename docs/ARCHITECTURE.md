@@ -25,7 +25,8 @@ secrets, code, IaC and image. If all four pass, a `terraform plan` runs against 
 read-only identity, and Checkov checks the *resolved* plan. Reviewers see exactly what will change before
 they approve.
 
-**CD** ([`cd.yml`](../.github/workflows/cd.yml)) runs on every merge to `main`:
+**CD** ([`cd.yml`](../.github/workflows/cd.yml)) runs on every merge to `main` that can affect the app. Changes
+that only touch `docs/`, Markdown, `LICENSE` or `scripts/` don't queue a production deploy.
 
 | Stage | What it does | Fails the run when |
 |---|---|---|
