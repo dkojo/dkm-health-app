@@ -34,6 +34,17 @@ jobs:
   # 2. BUILD + TEST + SAST + SCA for application code
   code:
     runs-on: ubuntu-latest
+    # Real PostgreSQL for the migration and least-privilege tests (tests/test_migrations.py).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust # throwaway database that exists only for this job
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }

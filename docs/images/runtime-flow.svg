@@ -111,7 +111,7 @@
 
   <rect x="300" y="460" width="250" height="70" rx="12" class="node" stroke="#fbbf24"/>
   <text x="316" y="489" class="t">id-dkm-health-app</text>
-  <text x="316" y="510" class="s">user-assigned managed identity</text>
+  <text x="316" y="510" class="s">DB role: SELECT/INSERT/UPDATE only</text>
 
   <rect x="620" y="140" width="200" height="100" rx="12" class="node" stroke="#f472b6"/>
   <text x="636" y="170" class="t">Blob Storage</text>
@@ -126,7 +126,7 @@
   <rect x="930" y="290" width="280" height="110" rx="12" class="node" stroke="#a78bfa" stroke-width="2"/>
   <text x="946" y="320" class="t">PostgreSQL Flexible · v16</text>
   <text x="946" y="342" class="s">Entra-only auth · TLS required</text>
-  <text x="946" y="360" class="s">database dkmhealth · users table</text>
+  <text x="946" y="360" class="s">schema app · versioned migrations</text>
   <text x="946" y="380" class="s">B1ms (sandbox profile)</text>
 
   <rect x="920" y="120" width="300" height="70" rx="12" class="node" stroke="#60a5fa"/>
