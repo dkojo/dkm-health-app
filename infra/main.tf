@@ -362,3 +362,15 @@ resource "azurerm_container_app" "api" {
     terraform_data.migrate, # schema and the app's database role exist before the app starts
   ]
 }
+
+# Break-glass: a human Entra group as a second database admin, for emergencies only.
+# Schema changes still go through migrations. See README "Break-glass database access".
+resource "azurerm_postgresql_flexible_server_active_directory_administrator" "breakglass" {
+  count               = var.db_admin_group_id != "" ? 1 : 0
+  server_name         = azurerm_postgresql_flexible_server.db.name
+  resource_group_name = local.rg
+  tenant_id           = data.azurerm_client_config.current.tenant_id
+  object_id           = var.db_admin_group_id
+  principal_name      = "dkm-health-db-admins"
+  principal_type      = "Group"
+}

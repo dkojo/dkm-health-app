@@ -64,3 +64,9 @@ variable "tags" {
     managed_by = "terraform"
   }
 }
+
+variable "db_admin_group_id" {
+  description = "Entra group for human break-glass access to PostgreSQL (DB_ADMIN_GROUP_ID repo variable). Empty = none."
+  type        = string
+  default     = ""
+}

@@ -31,6 +31,7 @@ env:
   TFSTATE_ACCOUNT: ${{ vars.TFSTATE_ACCOUNT }}
   TF_VAR_deployment_profile: ${{ vars.DEPLOYMENT_PROFILE || 'production' }}
   TF_VAR_pg_location: ${{ vars.PG_LOCATION }}
+  TF_VAR_db_admin_group_id: ${{ vars.DB_ADMIN_GROUP_ID }}
 
 jobs:
   destroy:
