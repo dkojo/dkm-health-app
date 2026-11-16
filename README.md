@@ -1,5 +1,10 @@
 # dkm-health-app: secure CI/CD POC (GitHub Actions → Azure)
 
+[![CI](https://github.com/dkojo/dkm-health-app/actions/workflows/ci.yml/badge.svg)](https://github.com/dkojo/dkm-health-app/actions/workflows/ci.yml)
+[![CD](https://github.com/dkojo/dkm-health-app/actions/workflows/cd.yml/badge.svg?branch=main)](https://github.com/dkojo/dkm-health-app/actions/workflows/cd.yml)
+[![Live app](https://img.shields.io/badge/live-%2Fhealth-34d399?logo=microsoftazure&logoColor=white)](https://ca-dkm-health-app.victoriousflower-6d70e21b.eastus2.azurecontainerapps.io/health)
+[![Architecture](https://img.shields.io/badge/docs-architecture-a78bfa)](docs/ARCHITECTURE.md)
+
 A minimal, working proof of concept for a health app that must follow HIPAA and SOC 2:
 a small API that registers users and checks their logins (passwords stored as Argon2id hashes in PostgreSQL),
 writes an audit trail to Azure Blob Storage, and ships through a pipeline with a security gate at every stage.
@@ -12,6 +17,13 @@ writes an audit trail to Azure Blob Storage, and ships through a pipeline with a
 ---
 
 ## 1. Architecture
+
+![Animated delivery pipeline: commit, pull request, CI gates, plan, merge, release, approval, deploy, DAST, live Azure app](docs/images/pipeline-flow.svg)
+
+**Full architecture, with animated runtime and identity diagrams: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+
+<details>
+<summary>Text version of the pipeline</summary>
 
 ```
  Developer ──pre-commit (gitleaks, ruff, tf fmt)──► git push ──► Pull Request
@@ -36,6 +48,8 @@ writes an audit trail to Azure Blob Storage, and ships through a pipeline with a
                     └── logs ──► Log Analytics ◄── DB + Blob diagnostic logs
   Azure  rg-dkm-health-shared: ACR (artifact repository) · Terraform state storage
 ```
+
+</details>
 
 **No secrets exist anywhere.** GitHub signs in to Azure with OIDC (short-lived tokens). The app reaches the
 database and storage with its managed identity. Database passwords and storage keys are switched off.
@@ -230,6 +244,7 @@ deploys so they can't overlap, and **it refuses to run while the profile is `pro
 ## Repo map
 ```
 app/main.py                 API: /health /ready /register /login
+docs/ARCHITECTURE.md        architecture + animated diagrams (docs/images/*.svg)
 tests/                      unit tests
 Dockerfile                  multi-stage, non-root, slim
 infra/*.tf                  Azure resources (Terraform)

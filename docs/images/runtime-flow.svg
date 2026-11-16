@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 700" width="1280" height="700" role="img" aria-labelledby="t d">
+  <title id="t">dkm-health-app runtime architecture</title>
+  <desc id="d">Animated request flow: clients call the Container App over HTTPS in eastus2. The app authenticates with its managed identity through Microsoft Entra ID, queries PostgreSQL in centralus over TLS, writes audit events to Blob Storage, and sends logs to Log Analytics. Images are pulled from a Cosign-signed Azure Container Registry.</desc>
+  <defs>
+    <filter id="glow" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="3.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/><stop offset="1" stop-color="#0d1530"/>
+    </linearGradient>
+    <path id="req"   d="M210,325 H300"/>
+    <path id="resp"  d="M300,355 H210"/>
+    <path id="sql"   d="M550,335 H930"/>
+    <path id="rows"  d="M930,360 H550"/>
+    <path id="audit" d="M550,295 C590,295 590,190 620,190"/>
+    <path id="tok"   d="M425,530 V585 H1070 V560"/>
+    <path id="pull"  d="M920,155 H470 V270"/>
+    <path id="logA"  d="M550,390 C590,390 590,490 620,490"/>
+    <path id="logB"  d="M720,240 V440"/>
+    <path id="logC"  d="M930,385 C880,385 870,490 820,490"/>
+  </defs>
+  <style>
+    .t  { font: 600 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #e2e8f0; }
+    .s  { font: 400 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #94a3b8; }
+    .k  { font: 700 11px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; }
+    .h  { font: 700 24px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #f8fafc; }
+    .wire { fill: none; stroke: #23314f; stroke-width: 2; }
+    .flow { fill: none; stroke-width: 2; stroke-dasharray: 6 10; }
+    .node { fill: #111a30; stroke-width: 1.5; }
+    .region { fill: none; stroke-width: 1.5; stroke-dasharray: 4 6; }
+  </style>
+
+  <rect width="1280" height="700" fill="url(#bg)"/>
+
+  <text x="32" y="46" class="h">dkm-health-app · runtime</text>
+  <text x="32" y="68" class="s">How a request flows through the deployed system. Identity-based access everywhere: no passwords, no storage keys, no connection strings.</text>
+  <g transform="translate(1150,30)">
+    <rect width="98" height="28" rx="14" fill="#0f2a22" stroke="#34d399" stroke-opacity=".6"/>
+    <circle cx="18" cy="14" r="5" fill="#34d399"><animate attributeName="opacity" values="1;.25;1" dur="1.6s" repeatCount="indefinite"/></circle>
+    <circle cx="18" cy="14" r="5" fill="none" stroke="#34d399">
+      <animate attributeName="r" values="5;12" dur="1.6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values=".8;0" dur="1.6s" repeatCount="indefinite"/>
+    </circle>
+    <text x="32" y="19" class="k" fill="#34d399">LIVE FLOW</text>
+  </g>
+
+  <!-- regions -->
+  <rect x="250" y="100" width="600" height="500" rx="18" class="region" stroke="#60a5fa" stroke-opacity=".5"/>
+  <text x="270" y="124" class="k" fill="#60a5fa">AZURE · EASTUS2 · rg-dkm-health-prod</text>
+  <rect x="890" y="250" width="350" height="190" rx="18" class="region" stroke="#a78bfa" stroke-opacity=".6"/>
+  <text x="910" y="430" class="k" fill="#a78bfa">AZURE · CENTRALUS · PG_LOCATION</text>
+  <rect x="890" y="100" width="350" height="110" rx="18" class="region" stroke="#94a3b8" stroke-opacity=".4"/>
+  <text x="910" y="202" class="k" fill="#94a3b8">rg-dkm-health-shared</text>
+  <rect x="285" y="240" width="280" height="190" rx="14" class="region" stroke="#22d3ee" stroke-opacity=".35"/>
+  <text x="300" y="258" class="k" fill="#22d3ee">CONTAINER APPS ENV</text>
+
+  <!-- wires -->
+  <g class="wire">
+    <use xlink:href="#req"/><use xlink:href="#resp"/><use xlink:href="#sql"/><use xlink:href="#rows"/>
+    <use xlink:href="#audit"/><use xlink:href="#tok"/><use xlink:href="#pull"/>
+    <use xlink:href="#logA"/><use xlink:href="#logB"/><use xlink:href="#logC"/>
+  </g>
+  <g class="flow">
+    <use xlink:href="#req" stroke="#22d3ee"/><use xlink:href="#sql" stroke="#a78bfa"/>
+    <use xlink:href="#audit" stroke="#f472b6"/><use xlink:href="#tok" stroke="#fbbf24"/><use xlink:href="#pull" stroke="#60a5fa"/>
+    <use xlink:href="#logA" stroke="#fb923c"/><use xlink:href="#logB" stroke="#fb923c"/><use xlink:href="#logC" stroke="#fb923c"/>
+    <animate attributeName="stroke-dashoffset" from="32" to="0" dur="1s" repeatCount="indefinite"/>
+  </g>
+  <g class="flow">
+    <use xlink:href="#resp" stroke="#34d399"/><use xlink:href="#rows" stroke="#34d399"/>
+    <animate attributeName="stroke-dashoffset" from="32" to="0" dur="1s" repeatCount="indefinite"/>
+  </g>
+
+  <!-- packets: one request cycle = request -> token -> SQL -> rows -> audit -> response, with logs streaming -->
+  <g filter="url(#glow)">
+    <circle r="5" fill="#22d3ee"><animateMotion dur="1.2s" repeatCount="indefinite"><mpath xlink:href="#req"/></animateMotion></circle>
+    <circle r="5" fill="#22d3ee"><animateMotion dur="1.2s" begin=".6s" repeatCount="indefinite"><mpath xlink:href="#req"/></animateMotion></circle>
+    <circle r="5" fill="#34d399"><animateMotion dur="1.2s" begin=".3s" repeatCount="indefinite"><mpath xlink:href="#resp"/></animateMotion></circle>
+    <circle r="5" fill="#34d399"><animateMotion dur="1.2s" begin=".9s" repeatCount="indefinite"><mpath xlink:href="#resp"/></animateMotion></circle>
+    <circle r="5" fill="#a78bfa"><animateMotion dur="2s" repeatCount="indefinite"><mpath xlink:href="#sql"/></animateMotion></circle>
+    <circle r="5" fill="#a78bfa"><animateMotion dur="2s" begin="1s" repeatCount="indefinite"><mpath xlink:href="#sql"/></animateMotion></circle>
+    <circle r="5" fill="#34d399"><animateMotion dur="2s" begin=".5s" repeatCount="indefinite"><mpath xlink:href="#rows"/></animateMotion></circle>
+    <circle r="5" fill="#34d399"><animateMotion dur="2s" begin="1.5s" repeatCount="indefinite"><mpath xlink:href="#rows"/></animateMotion></circle>
+    <circle r="5" fill="#f472b6"><animateMotion dur="1.8s" repeatCount="indefinite"><mpath xlink:href="#audit"/></animateMotion></circle>
+    <circle r="5" fill="#fbbf24"><animateMotion dur="4s" repeatCount="indefinite"><mpath xlink:href="#tok"/></animateMotion></circle>
+    <circle r="5" fill="#fbbf24"><animateMotion dur="4s" begin="2s" repeatCount="indefinite" keyPoints="1;0" keyTimes="0;1" calcMode="linear"><mpath xlink:href="#tok"/></animateMotion></circle>
+    <circle r="5" fill="#60a5fa"><animateMotion dur="5s" repeatCount="indefinite"><mpath xlink:href="#pull"/></animateMotion></circle>
+    <circle r="4" fill="#fb923c"><animateMotion dur="1.6s" repeatCount="indefinite"><mpath xlink:href="#logA"/></animateMotion></circle>
+    <circle r="4" fill="#fb923c"><animateMotion dur="1.6s" begin=".5s" repeatCount="indefinite"><mpath xlink:href="#logB"/></animateMotion></circle>
+    <circle r="4" fill="#fb923c"><animateMotion dur="2.2s" begin=".2s" repeatCount="indefinite"><mpath xlink:href="#logC"/></animateMotion></circle>
+  </g>
+
+  <!-- nodes -->
+  <rect x="40" y="290" width="170" height="100" rx="12" class="node" stroke="#22d3ee"/>
+  <text x="56" y="320" class="t">Clients</text>
+  <text x="56" y="342" class="s">browser · API · ZAP</text>
+  <text x="56" y="360" class="s">HTTPS only (TLS ingress)</text>
+
+  <rect x="300" y="270" width="250" height="140" rx="12" class="node" stroke="#22d3ee" stroke-width="2"/>
+  <text x="316" y="300" class="t">ca-dkm-health-app</text>
+  <text x="316" y="322" class="s">FastAPI · non-root container</text>
+  <text x="316" y="340" class="s">/health /ready /register /login</text>
+  <text x="316" y="358" class="s">scales 0 → 2 replicas</text>
+  <g fill="#22d3ee">
+    <rect x="316" y="378" width="34" height="16" rx="4"><animate attributeName="opacity" values="1;.35;1" dur="2s" repeatCount="indefinite"/></rect>
+    <rect x="356" y="378" width="34" height="16" rx="4" opacity=".35"><animate attributeName="opacity" values=".2;.2;1;1;.2" keyTimes="0;.4;.5;.85;1" dur="6s" repeatCount="indefinite"/></rect>
+  </g>
+  <text x="398" y="391" class="s">replicas</text>
+
+  <rect x="300" y="460" width="250" height="70" rx="12" class="node" stroke="#fbbf24"/>
+  <text x="316" y="489" class="t">id-dkm-health-app</text>
+  <text x="316" y="510" class="s">user-assigned managed identity</text>
+
+  <rect x="620" y="140" width="200" height="100" rx="12" class="node" stroke="#f472b6"/>
+  <text x="636" y="170" class="t">Blob Storage</text>
+  <text x="636" y="192" class="s">audit container</text>
+  <text x="636" y="210" class="s">Entra-only · keys disabled</text>
+
+  <rect x="620" y="440" width="200" height="100" rx="12" class="node" stroke="#fb923c"/>
+  <text x="636" y="470" class="t">Log Analytics</text>
+  <text x="636" y="492" class="s">app · DB · blob logs</text>
+  <text x="636" y="510" class="s">connections + disconnections</text>
+
+  <rect x="930" y="290" width="280" height="110" rx="12" class="node" stroke="#a78bfa" stroke-width="2"/>
+  <text x="946" y="320" class="t">PostgreSQL Flexible · v16</text>
+  <text x="946" y="342" class="s">Entra-only auth · TLS required</text>
+  <text x="946" y="360" class="s">database dkmhealth · users table</text>
+  <text x="946" y="380" class="s">B1ms (sandbox profile)</text>
+
+  <rect x="920" y="120" width="300" height="70" rx="12" class="node" stroke="#60a5fa"/>
+  <text x="936" y="149" class="t">Container Registry (ACR)</text>
+  <text x="936" y="170" class="s">Cosign-signed images · SBOM attestations</text>
+
+  <rect x="900" y="470" width="340" height="90" rx="12" class="node" stroke="#fbbf24"/>
+  <text x="916" y="500" class="t">Microsoft Entra ID</text>
+  <text x="916" y="522" class="s">short-lived tokens for the managed identity</text>
+  <text x="916" y="540" class="s">no passwords · no keys · nothing to rotate</text>
+
+  <!-- labels on flows -->
+  <text x="640" y="326" class="s">SQL over TLS · Entra token</text>
+  <text x="640" y="380" class="s" fill="#34d399">rows</text>
+  <text x="480" y="147" class="s">image pull (AcrPull)</text>
+  <text x="600" y="578" class="s">token request</text>
+
+  <!-- legend -->
+  <g transform="translate(32,632)">
+    <circle cx="6" cy="6" r="5" fill="#22d3ee" filter="url(#glow)"/><text x="18" y="10" class="s">Request</text>
+    <circle cx="106" cy="6" r="5" fill="#34d399" filter="url(#glow)"/><text x="118" y="10" class="s">Response / rows</text>
+    <circle cx="246" cy="6" r="5" fill="#a78bfa" filter="url(#glow)"/><text x="258" y="10" class="s">SQL</text>
+    <circle cx="316" cy="6" r="5" fill="#f472b6" filter="url(#glow)"/><text x="328" y="10" class="s">Audit event</text>
+    <circle cx="436" cy="6" r="5" fill="#fbbf24" filter="url(#glow)"/><text x="448" y="10" class="s">Entra token</text>
+    <circle cx="556" cy="6" r="5" fill="#fb923c" filter="url(#glow)"/><text x="568" y="10" class="s">Logs</text>
+    <circle cx="626" cy="6" r="5" fill="#60a5fa" filter="url(#glow)"/><text x="638" y="10" class="s">Image pull</text>
+    <text x="0" y="40" class="s">The database sits in centralus because the subscription can't create PostgreSQL in eastus2. Everything else runs in eastus2.</text>
+  </g>
+</svg>
