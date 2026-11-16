@@ -202,8 +202,8 @@ To regenerate after editing an `.in` file (Linux, so it matches CI and the image
 - No rate limiting at the edge yet. Add Azure Front Door + WAF in Sprint 3.
 - Cosign keyless signing records the repo name and image digest in the public Sigstore transparency log
   (no code or data). Use a Key Vault key instead if that isn't acceptable.
-- Container images run inside workflows (Gitleaks, Trivy, ZAP `stable`) are pinned by tag, not digest, and Dependabot
-  doesn't track them. Pin them by digest and review monthly. (Actions and Python packages are already SHA/hash-pinned.)
+- Tool images in workflows (Gitleaks, Trivy, ZAP, the CI PostgreSQL) are pinned by digest, but no bot updates them.
+  Review them monthly: bump the tag and digest together. (The app's base image is digest-pinned and updated weekly.)
 
 ## 7. Deployment profiles and cost (FinOps)
 
