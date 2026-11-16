@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/dkojo/dkm-health-app/actions/workflows/ci.yml/badge.svg)](https://github.com/dkojo/dkm-health-app/actions/workflows/ci.yml)
 [![CD](https://github.com/dkojo/dkm-health-app/actions/workflows/cd.yml/badge.svg?branch=main)](https://github.com/dkojo/dkm-health-app/actions/workflows/cd.yml)
-[![Live app](https://img.shields.io/badge/live-%2Fhealth-34d399?logo=microsoftazure&logoColor=white)](https://ca-dkm-health-app.victoriousflower-6d70e21b.eastus2.azurecontainerapps.io/health)
+[![Live app](https://img.shields.io/badge/live-%2Fhealth-34d399?logo=microsoftazure&logoColor=white)](https://ca-dkm-health-app.delightfultree-0144a0ca.eastus2.azurecontainerapps.io/health)
 [![Architecture](https://img.shields.io/badge/docs-architecture-a78bfa)](docs/ARCHITECTURE.md)
 
 A minimal, working proof of concept for a health app that must follow HIPAA and SOC 2:
