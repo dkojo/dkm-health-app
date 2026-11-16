@@ -197,7 +197,8 @@ To regenerate after editing an `.in` file (Linux, so it matches CI and the image
 
 ## 6. Known POC gaps (tracked, not hidden)
 - Postgres and Storage have public endpoints (they only accept Entra ID auth, over TLS). Fixed in Sprint 3.
-- The migrator identity is PostgreSQL's only Entra admin. Add a human break-glass admin group (Entra, MFA, PIM).
+- Break-glass group membership is permanent. Entra PIM would make it just-in-time and approved, but it needs an
+  Entra ID P2 licence.
 - `/login` checks credentials but doesn't issue a session. That comes with Entra External ID in Sprint 1.
 - No rate limiting at the edge yet. Add Azure Front Door + WAF in Sprint 3.
 - Cosign keyless signing records the repo name and image digest in the public Sigstore transparency log
@@ -233,6 +234,32 @@ leak into production unnoticed.
 > ⚠️ **Treat a profile change as a migration, not a toggle.** Switching an existing deployment changes
 > the database's geo-backup setting, which forces Azure to **recreate the PostgreSQL server**. Back up first,
 > or destroy and redeploy.
+
+### Break-glass database access (emergencies only)
+Normally no human touches the database: the API has a least-privilege role, and schema changes go through
+migrations. For emergencies, the Entra group `dkm-health-db-admins` is a second database admin. Membership is
+the access, so keep it to one or two people, with MFA (Entra security defaults).
+
+**One-time setup** (Git Bash):
+```bash
+ME=$(az ad signed-in-user show --query id -o tsv | tr -d '\r')
+GROUP_ID=$(az ad group create --display-name dkm-health-db-admins --mail-nickname dkm-health-db-admins --query id -o tsv | tr -d '\r')
+az ad group member add --group "$GROUP_ID" --member-id "$ME"
+gh variable set DB_ADMIN_GROUP_ID --body "$GROUP_ID"   # the next deploy makes the group a database admin
+```
+
+**In an emergency.** You need `psql`, which ships in the PostgreSQL client tools. The database only accepts
+Azure services, so open it to your IP for the session and always close it again:
+```bash
+RG=rg-dkm-health-prod; PG=psql-dkm-health-<suffix>; MYIP=$(curl -s https://api.ipify.org)
+az postgres flexible-server firewall-rule create -g $RG --server-name $PG --name breakglass --start-ip-address $MYIP --end-ip-address $MYIP
+export PGPASSWORD=$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv | tr -d '\r')
+psql "host=$PG.postgres.database.azure.com dbname=dkmhealth user=dkm-health-db-admins sslmode=require"
+az postgres flexible-server firewall-rule delete -g $RG --server-name $PG --name breakglass --yes; unset PGPASSWORD
+```
+The token is valid for about an hour. Every session is audited: PostgreSQL logs each connection with the user
+name, and the Azure activity log records the firewall change. Fix data, not schema. A schema fix belongs in a
+new migration, or the next deploy won't know about it.
 
 ### Tear down between sessions: the `destroy` workflow
 Actions → **destroy** → Run workflow → type `rg-dkm-health-prod`. It removes everything Terraform manages in
