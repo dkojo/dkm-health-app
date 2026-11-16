@@ -25,7 +25,8 @@ PG_SCOPE = "https://ossrdbms-aad.database.windows.net/.default"
 LOCK_KEY = 7_243_001  # pg_advisory_lock key: one migration run at a time
 
 
-def connect() -> psycopg.Connection:
+def connect(dbname: str | None = None) -> psycopg.Connection:
+    """Connect to PGDATABASE, or to `dbname` (e.g. "postgres") on the same server."""
     url = os.getenv("DATABASE_URL")
     if url:
         return psycopg.connect(url)
@@ -34,7 +35,7 @@ def connect() -> psycopg.Connection:
     token = DefaultAzureCredential().get_token(PG_SCOPE).token
     return psycopg.connect(
         host=os.environ["PGHOST"],
-        dbname=os.environ["PGDATABASE"],
+        dbname=dbname or os.environ["PGDATABASE"],
         user=os.environ["PGUSER"],
         password=token,
         sslmode="require",
@@ -55,7 +56,8 @@ def ensure_app_role(conn: psycopg.Connection, role: str) -> None:
         )
     else:
         # Azure: map the role to the managed identity of that name (is_admin=false, is_mfa=false).
-        conn.execute("SELECT * FROM pgaadauth_create_principal(%s, false, false)", (role,))
+        # This function exists only in the built-in "postgres" database; see main().
+        conn.execute("SELECT * FROM pgaadauth_create_principal(%s::text, false, false)", (role,))
     log.info("created app role %s", role)
 
 
@@ -79,8 +81,13 @@ def pending(applied: set[str]) -> list[Path]:
     return [p for p in sorted(MIGRATIONS_DIR.glob("*.sql")) if p.stem not in applied]
 
 
-def migrate(conn: psycopg.Connection, app_role: str) -> list[str]:
-    """Apply pending migrations; return the versions applied. Safe to run repeatedly."""
+def migrate(
+    conn: psycopg.Connection, app_role: str, roles_conn: psycopg.Connection | None = None
+) -> list[str]:
+    """Apply pending migrations; return the versions applied. Safe to run repeatedly.
+
+    roles_conn creates the app role (roles are server-wide); defaults to conn.
+    """
     conn.autocommit = True
     conn.execute("SELECT pg_advisory_lock(%s)", (LOCK_KEY,))
     try:
@@ -89,7 +96,9 @@ def migrate(conn: psycopg.Connection, app_role: str) -> list[str]:
             "CREATE TABLE IF NOT EXISTS app.schema_migrations ("
             " version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
         )
-        ensure_app_role(conn, app_role)
+        if roles_conn is not None:
+            roles_conn.autocommit = True
+        ensure_app_role(roles_conn or conn, app_role)
         verify_least_privilege(conn, app_role)
         applied = {r[0] for r in conn.execute("SELECT version FROM app.schema_migrations")}
         done = []
@@ -111,8 +120,9 @@ def migrate(conn: psycopg.Connection, app_role: str) -> list[str]:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    with connect() as conn:
-        done = migrate(conn, os.environ["APP_DB_ROLE"])
+    local = bool(os.getenv("DATABASE_URL"))
+    with connect() as conn, connect("postgres") as roles_conn:
+        done = migrate(conn, os.environ["APP_DB_ROLE"], None if local else roles_conn)
     log.info("migrations complete: %s", ", ".join(done) or "nothing pending")
     return 0
 

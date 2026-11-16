@@ -132,14 +132,16 @@ grant() { # sp_object_id role scope
 PLAN_ROLE="dkm-health Container App plan reader"
 PLAN_ROLE_ACTIONS='"Microsoft.App/containerApps/listSecrets/action","Microsoft.App/jobs/listSecrets/action"'
 ensure_plan_role() {
-  local existing f
+  local existing f desc
   existing=$(az role definition list --custom-role-only true --name "$PLAN_ROLE" --query "[0].name" -o tsv)
+  desc="Lets the read-only CI identity refresh Container Apps and jobs in terraform plan (azurerm calls listSecrets). No write actions."
   f=$(mktemp planrole.XXXXXX)
   CLEANUP+=("$f")
-  printf '{%s"Name":"%s","Description":"Lets the read-only CI identity refresh Container Apps and jobs in terraform plan (azurerm calls listSecrets). No write actions.","Actions":[%s],"NotActions":[],"DataActions":[],"NotDataActions":[],"AssignableScopes":["%s"]}'     "${existing:+\"id\":\"$existing\",}" "$PLAN_ROLE" "$PLAN_ROLE_ACTIONS" "$APP_RG_ID" > "$f"
-  if [ -n "$existing" ]; then
+  if [ -n "$existing" ]; then # update takes the ARM shape (roleName/permissions), create the short one
+    printf '{"name":"%s","roleName":"%s","description":"%s","permissions":[{"actions":[%s],"notActions":[],"dataActions":[],"notDataActions":[]}],"assignableScopes":["%s"]}'       "$existing" "$PLAN_ROLE" "$desc" "$PLAN_ROLE_ACTIONS" "$APP_RG_ID" > "$f"
     az role definition update --role-definition "@$f" -o none
   else
+    printf '{"Name":"%s","Description":"%s","Actions":[%s],"NotActions":[],"DataActions":[],"NotDataActions":[],"AssignableScopes":["%s"]}'       "$PLAN_ROLE" "$desc" "$PLAN_ROLE_ACTIONS" "$APP_RG_ID" > "$f"
     az role definition create --role-definition "@$f" -o none
   fi
   rm -f "$f"
