@@ -34,6 +34,7 @@ env:
   # sandbox | production (see infra/profiles.tf). Unset => production, the safe default.
   TF_VAR_deployment_profile: ${{ vars.DEPLOYMENT_PROFILE || 'production' }}
   TF_VAR_pg_location: ${{ vars.PG_LOCATION }}
+  TF_VAR_db_admin_group_id: ${{ vars.DB_ADMIN_GROUP_ID }}
 
 jobs:
   # 6. RELEASE ARTIFACT: build once, scan, push to ACR, sign + attach SBOM
