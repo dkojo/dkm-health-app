@@ -174,6 +174,7 @@ resource "azurerm_container_app_environment" "main" {
   name                       = "cae-dkm-health"
   resource_group_name        = local.rg
   location                   = local.loc
+  logs_destination           = "log-analytics" # required alongside the workspace ID since azurerm 5
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   tags                       = local.tags
 
