@@ -197,10 +197,9 @@ To regenerate after editing an `.in` file (Linux, so it matches CI and the image
 
 ## 6. Known POC gaps (tracked, not hidden)
 - Postgres and Storage have public endpoints (they only accept Entra ID auth, over TLS). Fixed in Sprint 3.
-- The app identity is the Postgres Entra admin, which avoids a manual SQL step. Least-privilege role comes in Sprint 1/2.
+- The migrator identity is PostgreSQL's only Entra admin. Add a human break-glass admin group (Entra, MFA, PIM).
 - `/login` checks credentials but doesn't issue a session. That comes with Entra External ID in Sprint 1.
 - No rate limiting at the edge yet. Add Azure Front Door + WAF in Sprint 3.
-- Schema is created when the app starts. Replaced by migrations in Sprint 2.
 - Cosign keyless signing records the repo name and image digest in the public Sigstore transparency log
   (no code or data). Use a Key Vault key instead if that isn't acceptable.
 - Container images run inside workflows (Gitleaks, Trivy, ZAP `stable`) are pinned by tag, not digest, and Dependabot
@@ -244,6 +243,8 @@ deploys so they can't overlap, and **it refuses to run while the profile is `pro
 ## Repo map
 ```
 app/main.py                 API: /health /ready /register /login
+app/migrate.py              migration runner (migrate job, migrator identity)
+app/migrations/*.sql        versioned schema changes + least-privilege grants
 docs/ARCHITECTURE.md        architecture + animated diagrams (docs/images/*.svg)
 tests/                      unit tests
 Dockerfile                  multi-stage, non-root, slim

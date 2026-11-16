@@ -32,7 +32,7 @@ that only touch `docs/`, Markdown, `LICENSE` or `scripts/` don't queue a product
 |---|---|---|
 | 6 · release | build, Trivy scan, CycloneDX SBOM, push to ACR, Cosign keyless sign + SBOM attestation | a fixable HIGH/CRITICAL CVE is found, or signing fails |
 | ⏸ approval | waits for a required reviewer on the `production` environment | — (it waits) |
-| 7 · deploy | Cosign verify, `terraform plan`, Checkov plan gate, `apply`, smoke test | the image wasn't signed by this repo's CD workflow on `main`, a policy is violated, or `/health` or `/ready` fails |
+| 7 · deploy | Cosign verify, `terraform plan`, Checkov plan gate, `apply` (runs schema migrations first), smoke test | the image wasn't signed by this repo's CD workflow on `main`, a policy is violated, or `/health` or `/ready` fails |
 | 8 · dast | OWASP ZAP baseline against the live URL | report only; findings go to the backlog |
 
 Only one production deploy runs at a time (`concurrency: deploy-production`), and a deploy is never interrupted
@@ -71,7 +71,9 @@ sequenceDiagram
     CD-->>Rev: waiting for production approval
     Rev->>CD: approve
     CD->>ACR: Cosign verify signature
-    CD->>AZ: OIDC sign-in (deploy) · plan · Checkov · apply
+    CD->>AZ: OIDC sign-in (deploy) · plan · Checkov
+    CD->>AZ: apply: run migration job (migrator identity), wait
+    CD->>AZ: apply: roll out the new app revision
     AZ-->>CD: new revision live
     CD->>AZ: smoke test /health · /ready
     CD->>AZ: OWASP ZAP baseline scan
@@ -81,6 +83,12 @@ sequenceDiagram
 
 ![Animated runtime flow: clients call the Container App, which uses its managed identity to reach PostgreSQL, Blob Storage and Log Analytics](images/runtime-flow.svg)
 
+- **Least privilege in the database.** The app's role can only `SELECT`, `INSERT` and `UPDATE` `app.users`: no
+  DDL, no `DELETE`, no admin. CI proves this against a real PostgreSQL on every pull request.
+- **Versioned migrations.** Schema changes are SQL files in [`app/migrations/`](../app/migrations), applied once,
+  in order, by the `caj-dkm-health-migrate` Container Apps job. It runs as a separate *migrator* identity (the
+  database's only Entra admin) that is never attached to the API. `terraform apply` runs the job and waits for it
+  before rolling out the new app revision, so new code never runs against an old schema.
 - **No secrets at runtime.** The container app runs as a user-assigned managed identity. Microsoft Entra ID issues
   it short-lived tokens for PostgreSQL and Blob Storage. Database passwords and storage keys are switched off.
 - **Two regions.** The database runs in `centralus` (the `PG_LOCATION` repo variable), because this subscription
@@ -109,14 +117,15 @@ look-alike with the same name, can't inherit this access. All of this is set up 
 
 ## 5. What's deployed
 
-Terraform ([`infra/`](../infra)) manages 16 resources in `rg-dkm-health-prod`. Bootstrap creates the shared
+Terraform ([`infra/`](../infra)) manages 20 resources in `rg-dkm-health-prod`. Bootstrap creates the shared
 registry and the Terraform state storage once, in `rg-dkm-health-shared`.
 
 | Area | Resources |
 |---|---|
 | App hosting | Container Apps environment `cae-dkm-health` (Consumption profile), container app `ca-dkm-health-app` |
-| Identity | managed identity `id-dkm-health-app`; AcrPull on the registry; Storage Blob Data Contributor on the audit container |
-| Database | PostgreSQL Flexible Server v16 `psql-dkm-health-<suffix>`, database `dkmhealth`, Entra admin (the managed identity), firewall rule, connection logging |
+| Identity | managed identities `id-dkm-health-app` (API) and `id-dkm-health-migrator` (migrations); AcrPull for both; Storage Blob Data Contributor on the audit container for the API |
+| Database | PostgreSQL Flexible Server v16 `psql-dkm-health-<suffix>`, database `dkmhealth`, Entra admin (the migrator identity), firewall rule, connection logging |
+| Migrations | Container Apps job `caj-dkm-health-migrate`, plus the apply step that runs it and waits for it |
 | Storage | storage account `stdkmhealth<suffix>` with the `audit` container |
 | Observability | Log Analytics workspace `log-dkm-health-<suffix>`; diagnostic settings for blob storage and PostgreSQL |
 

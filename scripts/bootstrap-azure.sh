@@ -126,15 +126,23 @@ grant() { # sp_object_id role scope
   echo "FAILED: $2 on $3" >&2; exit 1
 }
 
-# Reader can't call listSecrets, but azurerm calls it when refreshing a Container App during plan,
-# so PR plans fail once the app exists. This custom role adds only that action (no writes).
+# Reader can't call listSecrets, but azurerm calls it when refreshing a Container App or a Container
+# Apps job during plan, so PR plans fail once those exist. This custom role adds only those two
+# read actions (no writes). Re-running the script updates the role if its actions changed.
 PLAN_ROLE="dkm-health Container App plan reader"
+PLAN_ROLE_ACTIONS='"Microsoft.App/containerApps/listSecrets/action","Microsoft.App/jobs/listSecrets/action"'
 ensure_plan_role() {
-  [ -n "$(az role definition list --custom-role-only true --name "$PLAN_ROLE" --query "[0].id" -o tsv)" ] && return
-  local f; f=$(mktemp planrole.XXXXXX)
+  local existing f
+  existing=$(az role definition list --custom-role-only true --name "$PLAN_ROLE" --query "[0].name" -o tsv)
+  f=$(mktemp planrole.XXXXXX)
   CLEANUP+=("$f")
-  printf '{"Name":"%s","Description":"Lets the read-only CI identity refresh Container Apps in terraform plan (azurerm calls listSecrets). No write actions.","Actions":["Microsoft.App/containerApps/listSecrets/action"],"NotActions":[],"DataActions":[],"NotDataActions":[],"AssignableScopes":["%s"]}'     "$PLAN_ROLE" "$APP_RG_ID" > "$f"
-  az role definition create --role-definition "@$f" -o none; rm -f "$f"
+  printf '{%s"Name":"%s","Description":"Lets the read-only CI identity refresh Container Apps and jobs in terraform plan (azurerm calls listSecrets). No write actions.","Actions":[%s],"NotActions":[],"DataActions":[],"NotDataActions":[],"AssignableScopes":["%s"]}'     "${existing:+\"id\":\"$existing\",}" "$PLAN_ROLE" "$PLAN_ROLE_ACTIONS" "$APP_RG_ID" > "$f"
+  if [ -n "$existing" ]; then
+    az role definition update --role-definition "@$f" -o none
+  else
+    az role definition create --role-definition "@$f" -o none
+  fi
+  rm -f "$f"
 }
 
 echo "==> CI identity (read-only, pull requests)"

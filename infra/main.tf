@@ -21,7 +21,9 @@ locals {
   suffix = var.name_suffix != "" ? var.name_suffix : substr(sha256(data.azurerm_client_config.current.subscription_id), 0, 6)
 }
 
-# ---------- Identity: one managed identity, no secrets ----------
+# ---------- Identities: no secrets anywhere ----------
+# app:      the API. Database role limited to SELECT/INSERT/UPDATE on app.users (app/migrations).
+# migrator: database Entra admin, attached ONLY to the migration job, never to the API.
 resource "azurerm_user_assigned_identity" "app" {
   name                = "id-dkm-health-app"
   resource_group_name = local.rg
@@ -33,6 +35,19 @@ resource "azurerm_role_assignment" "acr_pull" {
   scope                = data.azurerm_container_registry.acr.id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.app.principal_id
+}
+
+resource "azurerm_user_assigned_identity" "migrator" {
+  name                = "id-dkm-health-migrator"
+  resource_group_name = local.rg
+  location            = local.loc
+  tags                = local.tags
+}
+
+resource "azurerm_role_assignment" "migrator_acr_pull" {
+  scope                = data.azurerm_container_registry.acr.id
+  role_definition_name = "AcrPull"
+  principal_id         = azurerm_user_assigned_identity.migrator.principal_id
 }
 
 # ---------- Logging (SOC2 CC7 / HIPAA 164.312(b) audit controls) ----------
@@ -131,15 +146,14 @@ resource "azurerm_postgresql_flexible_server_database" "app" {
   collation = "en_US.utf8"
 }
 
-# POC: the app identity is the Entra admin so no manual SQL step is needed.
-# Hardening backlog: make a human admin group the Entra admin and grant the
-# app a least-privilege role instead.
-resource "azurerm_postgresql_flexible_server_active_directory_administrator" "app" {
+# The migrator identity is the only Entra admin. The migration job uses it to apply app/migrations and
+# to create the app's non-admin role. Backlog: add a human break-glass admin group.
+resource "azurerm_postgresql_flexible_server_active_directory_administrator" "migrator" {
   server_name         = azurerm_postgresql_flexible_server.db.name
   resource_group_name = local.rg
   tenant_id           = data.azurerm_client_config.current.tenant_id
-  object_id           = azurerm_user_assigned_identity.app.principal_id
-  principal_name      = azurerm_user_assigned_identity.app.name
+  object_id           = azurerm_user_assigned_identity.migrator.principal_id
+  principal_name      = azurerm_user_assigned_identity.migrator.name
   principal_type      = "ServicePrincipal"
 }
 
@@ -184,6 +198,86 @@ resource "azurerm_container_app_environment" "main" {
     name                  = "Consumption"
     workload_profile_type = "Consumption"
   }
+}
+
+# ---------- Schema migrations (run inside Azure, before the new app revision rolls out) ----------
+resource "azurerm_container_app_job" "migrate" {
+  name                         = "caj-dkm-health-migrate"
+  resource_group_name          = local.rg
+  location                     = local.loc
+  container_app_environment_id = azurerm_container_app_environment.main.id
+  workload_profile_name        = "Consumption"
+  replica_timeout_in_seconds   = 600
+  replica_retry_limit          = 0
+  tags                         = local.tags
+
+  manual_trigger_config {
+    parallelism              = 1
+    replica_completion_count = 1
+  }
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.migrator.id]
+  }
+
+  registry {
+    server   = data.azurerm_container_registry.acr.login_server
+    identity = azurerm_user_assigned_identity.migrator.id
+  }
+
+  template {
+    container {
+      name    = "migrate"
+      image   = var.image # same signed image as the API
+      command = ["python", "-m", "app.migrate"]
+      cpu     = 0.25
+      memory  = "0.5Gi"
+
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = azurerm_user_assigned_identity.migrator.client_id
+      }
+      env {
+        name  = "PGHOST"
+        value = azurerm_postgresql_flexible_server.db.fqdn
+      }
+      env {
+        name  = "PGDATABASE"
+        value = azurerm_postgresql_flexible_server_database.app.name
+      }
+      env {
+        name  = "PGUSER"
+        value = azurerm_user_assigned_identity.migrator.name
+      }
+      env {
+        name  = "APP_DB_ROLE"
+        value = azurerm_user_assigned_identity.app.name
+      }
+    }
+  }
+
+  depends_on = [
+    azurerm_role_assignment.migrator_acr_pull,
+    azurerm_postgresql_flexible_server_active_directory_administrator.migrator,
+  ]
+}
+
+# Starts the job and waits for it during `terraform apply` (CD runner, CD identity). The API below
+# depends on this, so a new image never serves traffic before its migrations have succeeded.
+resource "terraform_data" "migrate" {
+  triggers_replace = [var.image]
+
+  provisioner "local-exec" {
+    command     = "bash run-migrations.sh"
+    working_dir = path.module
+    environment = {
+      JOB = azurerm_container_app_job.migrate.name
+      RG  = local.rg
+    }
+  }
+
+  depends_on = [azurerm_container_app_job.migrate]
 }
 
 resource "azurerm_container_app" "api" {
@@ -265,6 +359,6 @@ resource "azurerm_container_app" "api" {
   depends_on = [
     azurerm_role_assignment.acr_pull,
     azurerm_role_assignment.app_blob,
-    azurerm_postgresql_flexible_server_active_directory_administrator.app,
+    terraform_data.migrate, # schema and the app's database role exist before the app starts
   ]
 }

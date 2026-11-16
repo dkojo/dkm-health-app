@@ -4,6 +4,9 @@ Security posture (POC):
 - No secrets anywhere: Postgres and Blob are reached with the container's
   managed identity (Entra ID tokens), never passwords or connection strings.
 - Passwords are stored only as Argon2id hashes.
+- Least privilege: the app's database role can only SELECT/INSERT/UPDATE
+  app.users. Schema changes are versioned migrations (app/migrate.py) run by
+  a separate migrator identity, never by the API.
 - Audit events go to Blob Storage and contain no PHI/PII (no email, no IP).
 - Responses avoid user enumeration (same answer for new/existing emails,
   same error for unknown user / wrong password).
@@ -13,7 +16,6 @@ import json
 import logging
 import os
 import uuid
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import psycopg
@@ -31,17 +33,6 @@ LOCKOUT = timedelta(minutes=15)
 
 hasher = PasswordHasher()  # Argon2id with library-recommended parameters
 _DUMMY_HASH = hasher.hash("dummy-password-for-timing")
-
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS users (
-    id            uuid PRIMARY KEY,
-    email         text NOT NULL UNIQUE,
-    password_hash text NOT NULL,
-    failed_logins integer NOT NULL DEFAULT 0,
-    locked_until  timestamptz,
-    created_at    timestamptz NOT NULL DEFAULT now()
-);
-"""
 
 _credential = None
 _blob_container = None
@@ -100,18 +91,7 @@ def audit(event: str, outcome: str, request_id: str, user_id: str | None = None)
     audit_container().upload_blob(name, json.dumps(record), overwrite=False)
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    if _azure_configured():
-        # POC: idempotent schema bootstrap. Replace with versioned migrations
-        # (e.g. Alembic) run as a pipeline step before go-live.
-        with db() as conn:
-            conn.execute(SCHEMA_SQL)
-        log.info("schema ready")
-    yield
-
-
-app = FastAPI(title="dkm-health-app", lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title="dkm-health-app", docs_url=None, redoc_url=None)
 
 
 class Credentials(BaseModel):
@@ -164,7 +144,7 @@ def register(body: Credentials, request: Request):
     if _azure_configured():
         with db() as conn:
             cur = conn.execute(
-                "INSERT INTO users (id, email, password_hash) VALUES (%s, %s, %s) "
+                "INSERT INTO app.users (id, email, password_hash) VALUES (%s, %s, %s) "
                 "ON CONFLICT (email) DO NOTHING",
                 (user_id, email, pw_hash),
             )
@@ -185,7 +165,7 @@ def login(body: Credentials, request: Request):
 
     with db() as conn:
         row = conn.execute(
-            "SELECT id, password_hash, failed_logins, locked_until FROM users WHERE email = %s",
+            "SELECT id, password_hash, failed_logins, locked_until FROM app.users WHERE email = %s",
             (email,),
         ).fetchone()
 
@@ -212,7 +192,7 @@ def login(body: Credentials, request: Request):
             failed += 1
             lock = now + LOCKOUT if failed >= MAX_FAILED_LOGINS else None
             conn.execute(
-                "UPDATE users SET failed_logins = %s, locked_until = %s WHERE id = %s",
+                "UPDATE app.users SET failed_logins = %s, locked_until = %s WHERE id = %s",
                 (0 if lock else failed, lock, user_id),
             )
             conn.commit()  # persist the lockout counter before raising (raise => rollback)
@@ -221,11 +201,11 @@ def login(body: Credentials, request: Request):
 
         if hasher.check_needs_rehash(pw_hash):
             conn.execute(
-                "UPDATE users SET password_hash = %s WHERE id = %s",
+                "UPDATE app.users SET password_hash = %s WHERE id = %s",
                 (hasher.hash(body.password), user_id),
             )
         conn.execute(
-            "UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = %s", (user_id,)
+            "UPDATE app.users SET failed_logins = 0, locked_until = NULL WHERE id = %s", (user_id,)
         )
 
     audit("user.login", "success", rid, str(user_id))
