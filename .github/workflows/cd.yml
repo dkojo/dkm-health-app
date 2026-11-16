@@ -5,6 +5,12 @@ name: cd
 on:
   push:
     branches: [main]
+    # Changes that can't affect the running app don't queue a production deploy.
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "LICENSE"
+      - "scripts/**" # one-time bootstrap; re-run by hand, not by CD
   workflow_dispatch:
 
 permissions:
