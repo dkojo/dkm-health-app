@@ -67,7 +67,7 @@ fi
 
 echo "==> Registering resource providers"
 for ns in Microsoft.App Microsoft.ContainerRegistry Microsoft.DBforPostgreSQL \
-          Microsoft.OperationalInsights Microsoft.Storage Microsoft.ManagedIdentity Microsoft.Insights; do
+          Microsoft.OperationalInsights Microsoft.Storage Microsoft.ManagedIdentity Microsoft.Insights Microsoft.Network; do
   az provider register --namespace "$ns" -o none
 done
 
