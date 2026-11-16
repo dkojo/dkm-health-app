@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 760" width="1280" height="760" role="img" aria-labelledby="t d">
+  <title id="t">dkm-health-app delivery pipeline</title>
+  <desc id="d">Animated flow: a developer commit becomes a pull request, passes four parallel CI gates (secrets, code, IaC, image) and a read-only Terraform plan, is reviewed and merged, then CD builds, signs and releases the image, waits for production approval, verifies the signature, applies Terraform, smoke tests and runs a ZAP scan against the live Azure app.</desc>
+  <defs>
+    <filter id="glow" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="3.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/><stop offset="1" stop-color="#0d1530"/>
+    </linearGradient>
+    <linearGradient id="ciBand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.08"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="cdBand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#a78bfa" stop-opacity="0.08"/><stop offset="1" stop-color="#34d399" stop-opacity="0.06"/>
+    </linearGradient>
+    <!-- packet routes -->
+    <path id="ci1" d="M198,225 H368 C399,225 399,132 430,132 H680 C710,132 710,225 740,225 H1110"/>
+    <path id="ci2" d="M198,225 H368 C399,225 399,196 430,196 H680 C710,196 710,225 740,225 H1110"/>
+    <path id="ci3" d="M198,225 H368 C399,225 399,260 430,260 H680 C710,260 710,225 740,225 H1110"/>
+    <path id="ci4" d="M198,225 H368 C399,225 399,324 430,324 H680 C710,324 710,225 740,225 H1110"/>
+    <path id="cd" d="M1110,265 V385 H163 V525 H653 V622 H1123 V590"/>
+    <path id="scan" d="M978,525 H1018"/>
+  </defs>
+  <style>
+    .t  { font: 600 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #e2e8f0; }
+    .s  { font: 400 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #94a3b8; }
+    .k  { font: 700 11px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; }
+    .h  { font: 700 24px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #f8fafc; }
+    .wire { fill: none; stroke: #23314f; stroke-width: 2; }
+    .flow { fill: none; stroke-width: 2; stroke-dasharray: 6 10; }
+    .node { fill: #111a30; stroke-width: 1.5; }
+  </style>
+
+  <rect width="1280" height="760" fill="url(#bg)"/>
+
+  <!-- header -->
+  <text x="32" y="46" class="h">dkm-health-app · delivery pipeline</text>
+  <text x="32" y="68" class="s">From commit to a signed, policy-checked deploy on Azure. No stored secrets: GitHub OIDC + managed identity.</text>
+  <g transform="translate(1150,30)">
+    <rect width="98" height="28" rx="14" fill="#0f2a22" stroke="#34d399" stroke-opacity=".6"/>
+    <circle cx="18" cy="14" r="5" fill="#34d399">
+      <animate attributeName="opacity" values="1;.25;1" dur="1.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="18" cy="14" r="5" fill="none" stroke="#34d399">
+      <animate attributeName="r" values="5;12" dur="1.6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values=".8;0" dur="1.6s" repeatCount="indefinite"/>
+    </circle>
+    <text x="32" y="19" class="k" fill="#34d399">LIVE FLOW</text>
+  </g>
+
+  <!-- CI band -->
+  <rect x="24" y="84" width="1232" height="286" rx="16" fill="url(#ciBand)" stroke="#22d3ee" stroke-opacity=".25"/>
+  <text x="44" y="110" class="k" fill="#22d3ee">CI · EVERY PULL REQUEST · ci.yml</text>
+
+  <!-- CD band -->
+  <rect x="24" y="400" width="1232" height="250" rx="16" fill="url(#cdBand)" stroke="#a78bfa" stroke-opacity=".25"/>
+  <text x="44" y="426" class="k" fill="#a78bfa">CD · EVERY MERGE TO MAIN · cd.yml</text>
+
+  <!-- base wires -->
+  <g class="wire">
+    <use xlink:href="#ci1"/><use xlink:href="#ci2"/><use xlink:href="#ci3"/><use xlink:href="#ci4"/>
+    <use xlink:href="#cd"/><use xlink:href="#scan"/>
+  </g>
+  <!-- animated dashes -->
+  <g class="flow" stroke="#22d3ee" stroke-opacity=".55">
+    <use xlink:href="#ci1"/><use xlink:href="#ci2"/><use xlink:href="#ci3"/><use xlink:href="#ci4"/>
+    <animate attributeName="stroke-dashoffset" from="32" to="0" dur="1s" repeatCount="indefinite"/>
+  </g>
+  <g class="flow" stroke="#a78bfa" stroke-opacity=".55">
+    <use xlink:href="#cd"/>
+    <animate attributeName="stroke-dashoffset" from="32" to="0" dur="1s" repeatCount="indefinite"/>
+  </g>
+  <g class="flow" stroke="#f472b6" stroke-opacity=".8">
+    <use xlink:href="#scan"/>
+    <animate attributeName="stroke-dashoffset" from="32" to="0" dur=".8s" repeatCount="indefinite"/>
+  </g>
+
+  <!-- packets (drawn under the nodes so they enter and leave each stage) -->
+  <g filter="url(#glow)">
+    <circle r="5" fill="#22d3ee"><animateMotion dur="5s" begin="0s" repeatCount="indefinite"><mpath xlink:href="#ci1"/></animateMotion></circle>
+    <circle r="5" fill="#22d3ee"><animateMotion dur="5s" begin="0.4s" repeatCount="indefinite"><mpath xlink:href="#ci2"/></animateMotion></circle>
+    <circle r="5" fill="#22d3ee"><animateMotion dur="5s" begin="0.8s" repeatCount="indefinite"><mpath xlink:href="#ci3"/></animateMotion></circle>
+    <circle r="5" fill="#22d3ee"><animateMotion dur="5s" begin="1.2s" repeatCount="indefinite"><mpath xlink:href="#ci4"/></animateMotion></circle>
+    <circle r="5" fill="#22d3ee"><animateMotion dur="5s" begin="2.5s" repeatCount="indefinite"><mpath xlink:href="#ci2"/></animateMotion></circle>
+    <circle r="6" fill="#a78bfa"><animateMotion dur="7s" begin="0s" repeatCount="indefinite"><mpath xlink:href="#cd"/></animateMotion></circle>
+    <circle r="6" fill="#a78bfa"><animateMotion dur="7s" begin="3.5s" repeatCount="indefinite"><mpath xlink:href="#cd"/></animateMotion></circle>
+    <circle r="4" fill="#f472b6"><animateMotion dur="1.2s" repeatCount="indefinite" keyPoints="1;0" keyTimes="0;1" calcMode="linear"><mpath xlink:href="#scan"/></animateMotion></circle>
+  </g>
+
+  <!-- CI nodes -->
+  <g>
+    <rect x="48" y="185" width="150" height="80" rx="12" class="node" stroke="#60a5fa"/>
+    <text x="64" y="215" class="t">Developer</text>
+    <text x="64" y="236" class="s">pre-commit: gitleaks</text>
+    <text x="64" y="252" class="s">ruff · terraform fmt</text>
+
+    <rect x="238" y="185" width="130" height="80" rx="12" class="node" stroke="#60a5fa"/>
+    <text x="254" y="215" class="t">Pull request</text>
+    <text x="254" y="236" class="s">into protected</text>
+    <text x="254" y="252" class="s">main (PR-only)</text>
+  </g>
+
+  <g>
+    <rect x="430" y="106" width="250" height="52" rx="10" class="node" stroke="#22d3ee"/>
+    <text x="446" y="128" class="t">1 · secrets-scan</text><text x="446" y="146" class="s">Gitleaks, full history</text>
+    <rect x="430" y="170" width="250" height="52" rx="10" class="node" stroke="#22d3ee"/>
+    <text x="446" y="192" class="t">2 · code</text><text x="446" y="210" class="s">ruff · pytest · Semgrep · pip-audit</text>
+    <rect x="430" y="234" width="250" height="52" rx="10" class="node" stroke="#22d3ee"/>
+    <text x="446" y="256" class="t">3 · iac</text><text x="446" y="274" class="s">terraform validate · Checkov</text>
+    <rect x="430" y="298" width="250" height="52" rx="10" class="node" stroke="#22d3ee"/>
+    <text x="446" y="320" class="t">4 · image</text><text x="446" y="338" class="s">docker build · Trivy vulns + config</text>
+    <!-- live check marks, lighting up in turn -->
+    <g fill="#34d399">
+      <circle cx="660" cy="132" r="6"><animate attributeName="opacity" values=".15;1;1;.15" keyTimes="0;.3;.8;1" dur="5s" begin="0s" repeatCount="indefinite"/></circle>
+      <circle cx="660" cy="196" r="6"><animate attributeName="opacity" values=".15;1;1;.15" keyTimes="0;.3;.8;1" dur="5s" begin="0.4s" repeatCount="indefinite"/></circle>
+      <circle cx="660" cy="260" r="6"><animate attributeName="opacity" values=".15;1;1;.15" keyTimes="0;.3;.8;1" dur="5s" begin="0.8s" repeatCount="indefinite"/></circle>
+      <circle cx="660" cy="324" r="6"><animate attributeName="opacity" values=".15;1;1;.15" keyTimes="0;.3;.8;1" dur="5s" begin="1.2s" repeatCount="indefinite"/></circle>
+    </g>
+  </g>
+
+  <g>
+    <rect x="740" y="185" width="200" height="80" rx="12" class="node" stroke="#22d3ee"/>
+    <text x="756" y="215" class="t">5 · plan</text>
+    <text x="756" y="236" class="s">read-only OIDC identity</text>
+    <text x="756" y="252" class="s">Checkov on resolved plan</text>
+
+    <rect x="1000" y="185" width="220" height="80" rx="12" class="node" stroke="#34d399"/>
+    <text x="1016" y="215" class="t">Review + merge</text>
+    <text x="1016" y="236" class="s">all checks green</text>
+    <text x="1016" y="252" class="s">SonarCloud quality gate</text>
+  </g>
+
+  <!-- CD nodes -->
+  <g>
+    <rect x="48" y="470" width="230" height="110" rx="12" class="node" stroke="#a78bfa"/>
+    <text x="64" y="500" class="t">6 · release</text>
+    <text x="64" y="522" class="s">build · Trivy gate</text>
+    <text x="64" y="540" class="s">CycloneDX SBOM → ACR</text>
+    <text x="64" y="558" class="s">Cosign keyless sign + attest</text>
+
+    <rect x="318" y="480" width="170" height="90" rx="12" class="node" stroke="#fbbf24"/>
+    <rect x="318" y="480" width="170" height="90" rx="12" fill="none" stroke="#fbbf24" stroke-width="2">
+      <animate attributeName="stroke-opacity" values=".1;.9;.1" dur="2.4s" repeatCount="indefinite"/>
+    </rect>
+    <text x="334" y="510" class="t">⏸ Approval</text>
+    <text x="334" y="532" class="s">production environment</text>
+    <text x="334" y="550" class="s">required reviewer</text>
+
+    <rect x="528" y="470" width="250" height="110" rx="12" class="node" stroke="#a78bfa"/>
+    <text x="544" y="500" class="t">7 · deploy</text>
+    <text x="544" y="522" class="s">Cosign verify (this repo, main only)</text>
+    <text x="544" y="540" class="s">plan · Checkov gate · apply</text>
+    <text x="544" y="558" class="s">smoke test /health · /ready</text>
+
+    <rect x="818" y="480" width="160" height="90" rx="12" class="node" stroke="#f472b6"/>
+    <text x="834" y="510" class="t">8 · dast</text>
+    <text x="834" y="532" class="s">OWASP ZAP baseline</text>
+    <text x="834" y="550" class="s">against the live URL</text>
+
+    <rect x="1018" y="460" width="210" height="130" rx="14" class="node" stroke="#34d399" stroke-width="2"/>
+    <rect x="1018" y="460" width="210" height="130" rx="14" fill="#34d399" fill-opacity=".06">
+      <animate attributeName="fill-opacity" values=".02;.12;.02" dur="3s" repeatCount="indefinite"/>
+    </rect>
+    <text x="1034" y="490" class="t">Azure · live</text>
+    <text x="1034" y="512" class="s">Container App · eastus2</text>
+    <text x="1034" y="530" class="s">PostgreSQL · centralus</text>
+    <text x="1034" y="548" class="s">Blob audit · Log Analytics</text>
+    <text x="1034" y="572" class="k" fill="#34d399">● SERVING</text>
+  </g>
+
+  <text x="890" y="640" class="s">terraform apply</text>
+
+  <!-- footer -->
+  <g transform="translate(32,690)">
+    <circle cx="6" cy="6" r="5" fill="#22d3ee" filter="url(#glow)"/><text x="18" y="10" class="s">PR change through CI gates</text>
+    <circle cx="226" cy="6" r="5" fill="#a78bfa" filter="url(#glow)"/><text x="238" y="10" class="s">Release through CD</text>
+    <circle cx="396" cy="6" r="5" fill="#f472b6" filter="url(#glow)"/><text x="408" y="10" class="s">Live DAST scan</text>
+    <circle cx="536" cy="6" r="5" fill="#34d399"/><text x="548" y="10" class="s">Gate passed</text>
+    <text x="0" y="40" class="s">Every Action pinned to a commit SHA · hash-locked Python installs · only images signed by this repo's CD workflow on main can deploy.</text>
+  </g>
+</svg>
