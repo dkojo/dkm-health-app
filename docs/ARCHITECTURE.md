@@ -91,6 +91,10 @@ sequenceDiagram
   before rolling out the new app revision, so new code never runs against an old schema.
 - **Break-glass access.** The Entra group `dkm-health-db-admins` is the only other database admin. It's for human
   emergencies, through a temporary firewall rule and a short-lived token. See README section 7.
+- **No public database or storage.** PostgreSQL and Blob Storage have public access switched off. The Container
+  Apps environment runs inside a private network (`vnet-dkm-health`) and reaches them through private endpoints;
+  private DNS makes their normal hostnames resolve to private IPs there. An NSG lets only the apps' subnet reach
+  the endpoints, on ports 5432 and 443.
 - **No secrets at runtime.** The container app runs as a user-assigned managed identity. Microsoft Entra ID issues
   it short-lived tokens for PostgreSQL and Blob Storage. Database passwords and storage keys are switched off.
 - **Two regions.** The database runs in `centralus` (the `PG_LOCATION` repo variable), because this subscription
@@ -119,14 +123,15 @@ look-alike with the same name, can't inherit this access. All of this is set up 
 
 ## 5. What's deployed
 
-Terraform ([`infra/`](../infra)) manages 21 resources in `rg-dkm-health-prod`. Bootstrap creates the shared
+Terraform ([`infra/`](../infra)) manages 33 resources in `rg-dkm-health-prod`. Bootstrap creates the shared
 registry and the Terraform state storage once, in `rg-dkm-health-shared`.
 
 | Area | Resources |
 |---|---|
 | App hosting | Container Apps environment `cae-dkm-health` (Consumption profile), container app `ca-dkm-health-app` |
 | Identity | managed identities `id-dkm-health-app` (API) and `id-dkm-health-migrator` (migrations); AcrPull for both; Storage Blob Data Contributor on the audit container for the API |
-| Database | PostgreSQL Flexible Server v16 `psql-dkm-health-<suffix>`, database `dkmhealth`, Entra admins (the migrator identity, and the `dkm-health-db-admins` break-glass group), firewall rule, connection logging |
+| Database | PostgreSQL Flexible Server v16 `psql-dkm-health-<suffix>`, database `dkmhealth`, Entra admins (the migrator identity, and the `dkm-health-db-admins` break-glass group), public access off, connection logging |
+| Network | VNet `vnet-dkm-health` with an apps subnet and a private-endpoint subnet, two NSGs, private endpoints for PostgreSQL and blob, two private DNS zones |
 | Migrations | Container Apps job `caj-dkm-health-migrate`, plus the apply step that runs it and waits for it |
 | Storage | storage account `stdkmhealth<suffix>` with the `audit` container |
 | Observability | Log Analytics workspace `log-dkm-health-<suffix>`; diagnostic settings for blob storage and PostgreSQL |

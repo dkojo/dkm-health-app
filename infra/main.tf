@@ -62,14 +62,17 @@ resource "azurerm_log_analytics_workspace" "main" {
 
 # ---------- Blob storage (audit trail) ----------
 resource "azurerm_storage_account" "data" {
-  name                              = "stdkmhealth${local.suffix}"
-  resource_group_name               = local.rg
-  location                          = local.loc
-  account_tier                      = "Standard"
-  account_replication_type          = local.p.storage_replication
-  min_tls_version                   = "TLS1_2"
-  https_traffic_only_enabled        = true
-  shared_access_key_enabled         = false # Entra ID only: no account keys / SAS
+  name                       = "stdkmhealth${local.suffix}"
+  resource_group_name        = local.rg
+  location                   = local.loc
+  account_tier               = "Standard"
+  account_replication_type   = local.p.storage_replication
+  min_tls_version            = "TLS1_2"
+  https_traffic_only_enabled = true
+  shared_access_key_enabled  = false # Entra ID only: no account keys / SAS
+  # Private endpoint only (network.tf). The older argument on purpose: Checkov's CKV_AZURE_59 doesn't recognise
+  # azurerm 5's `public_network_access = "Disabled"` yet. Switch when it does (removed in azurerm 6).
+  public_network_access_enabled     = false
   allow_nested_items_to_be_public   = false
   infrastructure_encryption_enabled = true
   local_user_enabled                = false
@@ -117,7 +120,7 @@ resource "azurerm_postgresql_flexible_server" "db" {
   storage_mb                    = 32768
   backup_retention_days         = local.p.pg_backup_days
   geo_redundant_backup_enabled  = local.p.pg_geo_backup
-  public_network_access_enabled = true # until Sprint 3 private networking; see .checkov.yaml
+  public_network_access_enabled = false # private endpoint only (network.tf); break-glass: see README
   tags                          = local.tags
 
   authentication {
@@ -157,13 +160,6 @@ resource "azurerm_postgresql_flexible_server_active_directory_administrator" "mi
   principal_type      = "ServicePrincipal"
 }
 
-resource "azurerm_postgresql_flexible_server_firewall_rule" "azure" {
-  name             = "allow-azure-services"
-  server_id        = azurerm_postgresql_flexible_server.db.id
-  start_ip_address = "0.0.0.0"
-  end_ip_address   = "0.0.0.0"
-}
-
 resource "azurerm_postgresql_flexible_server_configuration" "log_connections" {
   name      = "log_connections"
   server_id = azurerm_postgresql_flexible_server.db.id
@@ -190,7 +186,10 @@ resource "azurerm_container_app_environment" "main" {
   location                   = local.loc
   logs_destination           = "log-analytics" # required alongside the workspace ID since azurerm 5
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-  tags                       = local.tags
+  infrastructure_subnet_id   = azurerm_subnet.container_apps.id # VNet-injected: reaches the private endpoints
+  # Azure creates this resource group for the environment's own network plumbing; naming it keeps plans stable.
+  infrastructure_resource_group_name = "ME_cae-dkm-health"
+  tags                               = local.tags
 
   # Azure now creates every environment with this serverless profile. Declared so Terraform
   # doesn't try to strip it on every plan. It is pay-per-use and scales to zero; no dedicated nodes.
@@ -260,6 +259,8 @@ resource "azurerm_container_app_job" "migrate" {
   depends_on = [
     azurerm_role_assignment.migrator_acr_pull,
     azurerm_postgresql_flexible_server_active_directory_administrator.migrator,
+    azurerm_private_endpoint.postgres, # the job reaches the database only through it
+    azurerm_private_dns_zone_virtual_network_link.postgres,
   ]
 }
 
@@ -360,6 +361,8 @@ resource "azurerm_container_app" "api" {
     azurerm_role_assignment.acr_pull,
     azurerm_role_assignment.app_blob,
     terraform_data.migrate, # schema and the app's database role exist before the app starts
+    azurerm_private_endpoint.blob,
+    azurerm_private_dns_zone_virtual_network_link.blob,
   ]
 }
 
