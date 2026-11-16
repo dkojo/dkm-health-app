@@ -86,9 +86,11 @@ sequenceDiagram
 - **Least privilege in the database.** The app's role can only `SELECT`, `INSERT` and `UPDATE` `app.users`: no
   DDL, no `DELETE`, no admin. CI proves this against a real PostgreSQL on every pull request.
 - **Versioned migrations.** Schema changes are SQL files in [`app/migrations/`](../app/migrations), applied once,
-  in order, by the `caj-dkm-health-migrate` Container Apps job. It runs as a separate *migrator* identity (the
-  database's only Entra admin) that is never attached to the API. `terraform apply` runs the job and waits for it
+  in order, by the `caj-dkm-health-migrate` Container Apps job. It runs as a separate *migrator* identity (a
+  database Entra admin) that is never attached to the API. `terraform apply` runs the job and waits for it
   before rolling out the new app revision, so new code never runs against an old schema.
+- **Break-glass access.** The Entra group `dkm-health-db-admins` is the only other database admin. It's for human
+  emergencies, through a temporary firewall rule and a short-lived token. See README section 7.
 - **No secrets at runtime.** The container app runs as a user-assigned managed identity. Microsoft Entra ID issues
   it short-lived tokens for PostgreSQL and Blob Storage. Database passwords and storage keys are switched off.
 - **Two regions.** The database runs in `centralus` (the `PG_LOCATION` repo variable), because this subscription
@@ -117,14 +119,14 @@ look-alike with the same name, can't inherit this access. All of this is set up 
 
 ## 5. What's deployed
 
-Terraform ([`infra/`](../infra)) manages 20 resources in `rg-dkm-health-prod`. Bootstrap creates the shared
+Terraform ([`infra/`](../infra)) manages 21 resources in `rg-dkm-health-prod`. Bootstrap creates the shared
 registry and the Terraform state storage once, in `rg-dkm-health-shared`.
 
 | Area | Resources |
 |---|---|
 | App hosting | Container Apps environment `cae-dkm-health` (Consumption profile), container app `ca-dkm-health-app` |
 | Identity | managed identities `id-dkm-health-app` (API) and `id-dkm-health-migrator` (migrations); AcrPull for both; Storage Blob Data Contributor on the audit container for the API |
-| Database | PostgreSQL Flexible Server v16 `psql-dkm-health-<suffix>`, database `dkmhealth`, Entra admin (the migrator identity), firewall rule, connection logging |
+| Database | PostgreSQL Flexible Server v16 `psql-dkm-health-<suffix>`, database `dkmhealth`, Entra admins (the migrator identity, and the `dkm-health-db-admins` break-glass group), firewall rule, connection logging |
 | Migrations | Container Apps job `caj-dkm-health-migrate`, plus the apply step that runs it and waits for it |
 | Storage | storage account `stdkmhealth<suffix>` with the `audit` container |
 | Observability | Log Analytics workspace `log-dkm-health-<suffix>`; diagnostic settings for blob storage and PostgreSQL |
